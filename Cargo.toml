@@ -1,0 +1,16 @@
+[package]
+name = "realcugan-rs"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+image = "0.25.2"
+libc = "0.2.158"
+
+[build-dependencies]
+cmake = "^0.1.48"
+
+[profile.release]
+lto = true
+opt-level = 3
+#strip = "symbols"
