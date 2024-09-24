@@ -3,8 +3,12 @@ name = "realcugan-rs"
 version = "1.0.0"
 edition = "2021"
 
+[lib]
+path = "src/lib.rs"
+crate-type = ["staticlib"]
+
 [dependencies]
-image = "0.25.2"
+image = { version = "0.25.2", default-features = false, features = ["default-formats"]}
 libc = "0.2.158"
 
 [build-dependencies]
@@ -13,4 +17,6 @@ cmake = "^0.1.48"
 [profile.release]
 lto = true
 opt-level = 3
-#strip = "symbols"
+strip = "symbols"
+panic = "abort"
+incremental = false

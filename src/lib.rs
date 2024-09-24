@@ -204,7 +204,7 @@ pub struct RealCuganBuilder {
 
 impl RealCuganBuilder {
 
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             gpu: 0,
             noise: -1,

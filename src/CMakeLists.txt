@@ -4,7 +4,7 @@ cmake_policy(SET CMP0091 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-project(realcugan-rs)
+project(realcugan-wrapper)
 
 set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CXX_STANDARD 11)
@@ -94,7 +94,7 @@ add_custom_target(generate-spirv DEPENDS ${SHADERS_HEX_FILES})
 
 ###
 
-add_library(realcugan-rs STATIC ${CMAKE_SOURCE_DIR}/cpp/wrapper.cpp ${CMAKE_SOURCE_DIR}/cpp/realcugan.cpp)
-add_dependencies(realcugan-rs generate-spirv)
-target_link_libraries(realcugan-rs ncnn ${Vulkan_LIBRARY})
-install(TARGETS realcugan-rs ARCHIVE DESTINATION lib)
+add_library(realcugan-wrapper STATIC ${CMAKE_SOURCE_DIR}/cpp/wrapper.cpp ${CMAKE_SOURCE_DIR}/cpp/realcugan.cpp)
+add_dependencies(realcugan-wrapper generate-spirv)
+target_link_libraries(realcugan-wrapper ncnn ${Vulkan_LIBRARY})
+install(TARGETS realcugan-wrapper ARCHIVE DESTINATION lib)
