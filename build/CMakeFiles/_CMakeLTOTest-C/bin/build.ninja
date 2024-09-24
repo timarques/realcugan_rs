@@ -34,7 +34,7 @@ include CMakeFiles/rules.ninja
 #############################################
 # Logical path to working directory; prefix for absolute paths.
 
-cmake_ninja_workdir = /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin/
+cmake_ninja_workdir = /backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin/
 # =============================================================================
 # Object build statements for STATIC_LIBRARY target foo
 
@@ -44,7 +44,7 @@ cmake_ninja_workdir = /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMak
 
 build cmake_object_order_depends_target_foo: phony || CMakeFiles/foo.dir
 
-build CMakeFiles/foo.dir/foo.c.o: C_COMPILER__foo_unscanned_ /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src/foo.c || cmake_object_order_depends_target_foo
+build CMakeFiles/foo.dir/foo.c.o: C_COMPILER__foo_unscanned_ /backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src/foo.c || cmake_object_order_depends_target_foo
   DEP_FILE = CMakeFiles/foo.dir/foo.c.o.d
   FLAGS = -flto=thin
   OBJECT_DIR = CMakeFiles/foo.dir
@@ -75,7 +75,7 @@ build libfoo.a: C_STATIC_LIBRARY_LINKER__foo_ CMakeFiles/foo.dir/foo.c.o
 
 build cmake_object_order_depends_target_boo: phony || cmake_object_order_depends_target_foo
 
-build CMakeFiles/boo.dir/main.c.o: C_COMPILER__boo_unscanned_ /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src/main.c || cmake_object_order_depends_target_boo
+build CMakeFiles/boo.dir/main.c.o: C_COMPILER__boo_unscanned_ /backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src/main.c || cmake_object_order_depends_target_boo
   DEP_FILE = CMakeFiles/boo.dir/main.c.o.d
   FLAGS = -flto=thin
   OBJECT_DIR = CMakeFiles/boo.dir
@@ -103,7 +103,7 @@ build boo: C_EXECUTABLE_LINKER__boo_ CMakeFiles/boo.dir/main.c.o | libfoo.a || l
 # Utility command for edit_cache
 
 build CMakeFiles/edit_cache.util: CUSTOM_COMMAND
-  COMMAND = cd /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin && /usr/bin/ccmake -S/backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src -B/backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin
+  COMMAND = cd /backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin && /usr/bin/ccmake -S/backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src -B/backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin
   DESC = Running CMake cache editor...
   pool = console
   restat = 1
@@ -115,7 +115,7 @@ build edit_cache: phony CMakeFiles/edit_cache.util
 # Utility command for rebuild_cache
 
 build CMakeFiles/rebuild_cache.util: CUSTOM_COMMAND
-  COMMAND = cd /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin && /usr/bin/cmake --regenerate-during-build -S/backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src -B/backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin
+  COMMAND = cd /backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin && /usr/bin/cmake --regenerate-during-build -S/backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src -B/backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin
   DESC = Running CMake to regenerate build system...
   pool = console
   restat = 1
@@ -133,7 +133,7 @@ build foo: phony libfoo.a
 # =============================================================================
 
 #############################################
-# Folder: /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin
+# Folder: /backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/bin
 
 build all: phony libfoo.a boo
 
@@ -144,14 +144,14 @@ build all: phony libfoo.a boo
 #############################################
 # Re-run CMake if any of its inputs changed.
 
-build build.ninja: RERUN_CMAKE | /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/3.28.3/CMakeCCompiler.cmake /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/3.28.3/CMakeSystem.cmake /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src/CMakeLists.txt /usr/share/cmake/Modules/CMakeCInformation.cmake /usr/share/cmake/Modules/CMakeCommonLanguageInclude.cmake /usr/share/cmake/Modules/CMakeGenericSystem.cmake /usr/share/cmake/Modules/CMakeInitializeConfigs.cmake /usr/share/cmake/Modules/CMakeLanguageInformation.cmake /usr/share/cmake/Modules/CMakeSystemSpecificInformation.cmake /usr/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake /usr/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake /usr/share/cmake/Modules/Compiler/Clang-C.cmake /usr/share/cmake/Modules/Compiler/Clang.cmake /usr/share/cmake/Modules/Compiler/GNU.cmake /usr/share/cmake/Modules/Platform/Linux-Clang-C.cmake /usr/share/cmake/Modules/Platform/Linux-GNU-C.cmake /usr/share/cmake/Modules/Platform/Linux-GNU.cmake /usr/share/cmake/Modules/Platform/Linux-Initialize.cmake /usr/share/cmake/Modules/Platform/Linux.cmake /usr/share/cmake/Modules/Platform/UnixPaths.cmake CMakeCache.txt
+build build.ninja: RERUN_CMAKE | /backup/Projects/realcugan_rs/build/CMakeFiles/3.28.3/CMakeCCompiler.cmake /backup/Projects/realcugan_rs/build/CMakeFiles/3.28.3/CMakeSystem.cmake /backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src/CMakeLists.txt /usr/share/cmake/Modules/CMakeCInformation.cmake /usr/share/cmake/Modules/CMakeCommonLanguageInclude.cmake /usr/share/cmake/Modules/CMakeGenericSystem.cmake /usr/share/cmake/Modules/CMakeInitializeConfigs.cmake /usr/share/cmake/Modules/CMakeLanguageInformation.cmake /usr/share/cmake/Modules/CMakeSystemSpecificInformation.cmake /usr/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake /usr/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake /usr/share/cmake/Modules/Compiler/Clang-C.cmake /usr/share/cmake/Modules/Compiler/Clang.cmake /usr/share/cmake/Modules/Compiler/GNU.cmake /usr/share/cmake/Modules/Platform/Linux-Clang-C.cmake /usr/share/cmake/Modules/Platform/Linux-GNU-C.cmake /usr/share/cmake/Modules/Platform/Linux-GNU.cmake /usr/share/cmake/Modules/Platform/Linux-Initialize.cmake /usr/share/cmake/Modules/Platform/Linux.cmake /usr/share/cmake/Modules/Platform/UnixPaths.cmake CMakeCache.txt
   pool = console
 
 
 #############################################
 # A missing CMake input file is not an error.
 
-build /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/3.28.3/CMakeCCompiler.cmake /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/3.28.3/CMakeSystem.cmake /backup/Projects/cugan/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src/CMakeLists.txt /usr/share/cmake/Modules/CMakeCInformation.cmake /usr/share/cmake/Modules/CMakeCommonLanguageInclude.cmake /usr/share/cmake/Modules/CMakeGenericSystem.cmake /usr/share/cmake/Modules/CMakeInitializeConfigs.cmake /usr/share/cmake/Modules/CMakeLanguageInformation.cmake /usr/share/cmake/Modules/CMakeSystemSpecificInformation.cmake /usr/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake /usr/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake /usr/share/cmake/Modules/Compiler/Clang-C.cmake /usr/share/cmake/Modules/Compiler/Clang.cmake /usr/share/cmake/Modules/Compiler/GNU.cmake /usr/share/cmake/Modules/Platform/Linux-Clang-C.cmake /usr/share/cmake/Modules/Platform/Linux-GNU-C.cmake /usr/share/cmake/Modules/Platform/Linux-GNU.cmake /usr/share/cmake/Modules/Platform/Linux-Initialize.cmake /usr/share/cmake/Modules/Platform/Linux.cmake /usr/share/cmake/Modules/Platform/UnixPaths.cmake CMakeCache.txt: phony
+build /backup/Projects/realcugan_rs/build/CMakeFiles/3.28.3/CMakeCCompiler.cmake /backup/Projects/realcugan_rs/build/CMakeFiles/3.28.3/CMakeSystem.cmake /backup/Projects/realcugan_rs/build/CMakeFiles/_CMakeLTOTest-C/src/CMakeLists.txt /usr/share/cmake/Modules/CMakeCInformation.cmake /usr/share/cmake/Modules/CMakeCommonLanguageInclude.cmake /usr/share/cmake/Modules/CMakeGenericSystem.cmake /usr/share/cmake/Modules/CMakeInitializeConfigs.cmake /usr/share/cmake/Modules/CMakeLanguageInformation.cmake /usr/share/cmake/Modules/CMakeSystemSpecificInformation.cmake /usr/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake /usr/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake /usr/share/cmake/Modules/Compiler/Clang-C.cmake /usr/share/cmake/Modules/Compiler/Clang.cmake /usr/share/cmake/Modules/Compiler/GNU.cmake /usr/share/cmake/Modules/Platform/Linux-Clang-C.cmake /usr/share/cmake/Modules/Platform/Linux-GNU-C.cmake /usr/share/cmake/Modules/Platform/Linux-GNU.cmake /usr/share/cmake/Modules/Platform/Linux-Initialize.cmake /usr/share/cmake/Modules/Platform/Linux.cmake /usr/share/cmake/Modules/Platform/UnixPaths.cmake CMakeCache.txt: phony
 
 
 #############################################

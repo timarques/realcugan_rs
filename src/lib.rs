@@ -464,3 +464,24 @@ impl RealCuganBuilder {
 pub fn new() -> RealCuganBuilder {
     RealCuganBuilder::new()
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_upscale_image_path() {
+        let realcugan = RealCuganBuilder::new()
+            .directory("./models")
+            .build()
+            .unwrap();
+
+        let image = image::DynamicImage::new(100, 100, image::ColorType::L8);
+
+        let _ = realcugan
+            .upscale_image(image.into())
+            .unwrap();
+    }
+
+}
