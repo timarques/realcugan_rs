@@ -1,4 +1,5 @@
-use std::convert::TryFrom;
+use std::sync::atomic::{AtomicU8, Ordering::Relaxed};
+use std::{convert::TryFrom, sync::Arc};
 use std::ffi::CString;
 
 use image::{DynamicImage, GrayAlphaImage, GrayImage, RgbaImage, RgbImage};
@@ -54,19 +55,26 @@ extern "C" {
     fn realcugan_free(realcugan: *mut c_void);
 }
 
+#[derive(Debug)]
 pub struct RealCugan {
     pointer: *mut c_void,
     scale: i32,
     use_cpu: bool,
+    clones: Arc<AtomicU8>
 }
 
 impl RealCugan {
 
-    fn new(pointer: *mut c_void, scale: i32, use_cpu: bool) -> Self {
+    fn new(
+        pointer: *mut c_void,
+        scale: i32,
+        use_cpu: bool,
+    ) -> Self {
         Self {
             pointer,
             scale,
             use_cpu,
+            clones: Arc::new(AtomicU8::new(0))
         }
     }
 
@@ -173,10 +181,26 @@ impl Default for RealCugan {
 
 }
 
+impl Clone for RealCugan {
+
+    fn clone(&self) -> Self {
+        self.clones.fetch_add(1, Relaxed);
+        Self {
+            pointer: self.pointer,
+            scale: self.scale,
+            use_cpu: self.use_cpu,
+            clones: self.clones.clone()
+        }
+    }
+
+}
+
 impl Drop for RealCugan {
     fn drop(&mut self) {
-        unsafe {
-            realcugan_free(self.pointer);
+        if self.clones.fetch_sub(1, Relaxed) <= 1 {
+            unsafe {
+                realcugan_free(self.pointer);
+            }
         }
     }
 }
@@ -189,6 +213,7 @@ pub enum Model {
     Se,
 }
 
+#[derive(Debug, Clone)]
 pub struct RealCuganBuilder {
     gpu: i32,
     noise: i32,
@@ -472,7 +497,7 @@ mod tests {
 
     #[test]
     fn test_upscale_image_path() {
-        let _ = RealCuganBuilder::new().directory("./models");
+        let _ = RealCuganBuilder::new();
     }
 
 }
