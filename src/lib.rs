@@ -435,16 +435,17 @@ impl RealCuganBuilder {
     
     }
 
-    fn init_gpu(&self) {
+    fn init_gpu(&self) -> Result<(), String> {
         if self.gpu == -1 {
-            return
+            return Ok(())
         }
         unsafe { realcugan_init_gpu_instance() }
         let count = unsafe { realcugan_get_gpu_count() } as i32;
         if self.gpu >= count {
             unsafe { realcugan_destroy_gpu_instance() }
-            panic!("gpu {} not found", self.gpu)
+            return Err(format!("gpu {} not found", self.gpu))
         }
+        Ok(())
     }
 
     fn init_model(&self, realcugan: *mut c_void) {
@@ -459,8 +460,8 @@ impl RealCuganBuilder {
         }
     }
 
-    fn init(&self) -> *mut c_void {
-        self.init_gpu();
+    fn init(&self) -> Result<*mut c_void, String> {
+        self.init_gpu()?;
         let cugan = unsafe {
             realcugan_init(
                 self.gpu,
@@ -474,12 +475,12 @@ impl RealCuganBuilder {
             )
         };
         self.init_model(cugan);
-        cugan
+        Ok(cugan)
     }
 
     pub fn build(mut self) -> Result<RealCugan, String> {
         self.create_model_paths()?;
-        let cugan = self.init();
+        let cugan = self.init()?;
         let realcugan = RealCugan::new(cugan, self.scale, self.gpu == -1);
         Ok(realcugan)
     }
