@@ -1,27 +1,30 @@
 cmake_minimum_required(VERSION 3.9)
 project(realcugan-wrapper)
 
-include(CheckIPOSupported)
+find_package(Threads)
+find_package(OpenMP)
+find_package(Vulkan REQUIRED)
 
 set(CMAKE_BUILD_TYPE Release)
-set(CMAKE_CXX_FLAGS "-Wall -Wextra")
-set(CMAKE_CXX_FLAGS_DEBUG "-g")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
-set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
-set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
+set(CMAKE_CXX_FLAGS "-O3 ${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_STANDARD 11)
 
-if(NOT EXISTS ${CMAKE_SOURCE_DIR}/ncnn)
-    include(FetchContent)
-    FetchContent_Declare(git
-        GIT_REPOSITORY "https://github.com/Tencent/ncnn.git"
-        GIT_TAG "20240820"
-        SOURCE_DIR ${CMAKE_SOURCE_DIR}/ncnn
-    )
-    FetchContent_MakeAvailable(git)
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_supported)
+if(ipo_supported)
+    set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+    message(WARNING "IPO is not supported")
 endif()
 
+if (OPENMP_FOUND)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+endif()
+
+option(NCNN_PLATFORM_API "" OFF)
 OPTION(NCNN_ENABLE_LTO "" ON)
 option(NCNN_INSTALL_SDK "" OFF)
 option(NCNN_PIXEL_ROTATE "" OFF)
@@ -33,9 +36,10 @@ option(NCNN_BUILD_BENCHMARK "" OFF)
 option(NCNN_BUILD_TESTS "" OFF)
 option(NCNN_BUILD_TOOLS "" OFF)
 option(NCNN_BUILD_EXAMPLES "" OFF)
-option(NCNN_DISABLE_RTTI "" OFF)
-option(NCNN_DISABLE_EXCEPTION "" OFF)
+option(NCNN_DISABLE_RTTI "" ON)
+option(NCNN_DISABLE_EXCEPTION "" ON)
 option(NCNN_INT8 "" OFF)
+
 option(WITH_LAYER_absval "" OFF)
 option(WITH_LAYER_argmax "" OFF)
 option(WITH_LAYER_batchnorm "" OFF)
@@ -131,21 +135,17 @@ option(WITH_LAYER_deconvolutiondepthwise3d "" OFF)
 option(WITH_LAYER_einsum "" OFF)
 option(WITH_LAYER_deformableconv2d "" OFF)
 
-add_subdirectory(${CMAKE_SOURCE_DIR}/ncnn)
-
-find_package(Threads)
-find_package(OpenMP)
-find_package(Vulkan REQUIRED)
-
-if (OPENMP_FOUND)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+if(NOT EXISTS ${CMAKE_SOURCE_DIR}/ncnn)
+    include(FetchContent)
+    FetchContent_Declare(ncnn
+        GIT_REPOSITORY "https://github.com/Tencent/ncnn.git"
+        GIT_TAG "066614351391d309c96ae1e00c6fb1bd873b4949"
+        SOURCE_DIR ${CMAKE_SOURCE_DIR}/ncnn
+    )
+    FetchContent_MakeAvailable(ncnn)
 endif()
 
-
-include_directories(${CMAKE_SOURCE_DIR}/cpp)
-include_directories(${CMAKE_SOURCE_DIR}/shaders)
+add_subdirectory(${CMAKE_SOURCE_DIR}/ncnn)
 
 set(SHADERS_FILES
     realcugan_preproc.comp
@@ -158,27 +158,28 @@ set(SHADERS_FILES
 
 foreach(SHADER ${SHADERS_FILES})
     get_filename_component(SHADER_SRC_NAME_WE ${SHADER} NAME_WE)
+    set(SHADER_COMP_HEADER ${CMAKE_CURRENT_BINARY_DIR}/shaders/${SHADER_SRC_NAME_WE}.comp.hex.h)
+    set(SHADER_TEXT2HEX ${CMAKE_BINARY_DIR}/shaders/${SHADER_SRC_NAME_WE}.text2hex.txt)
 
-    set(SHADER_SRC ${CMAKE_SOURCE_DIR}/shaders/${SHADER})
-    file(READ ${SHADER_SRC} comp_data)
+    file(READ ${CMAKE_SOURCE_DIR}/shaders/${SHADER} comp_data)
     string(FIND "${comp_data}" "#version" version_start)
     string(SUBSTRING "${comp_data}" ${version_start} -1 comp_data)
     string(REGEX REPLACE "\n +" "\n" comp_data "${comp_data}")
 
-    get_filename_component(SHADER_SRC_NAME_WE ${SHADER_SRC} NAME_WE)
+    file(WRITE ${SHADER_TEXT2HEX} "${comp_data}")
+    file(READ ${SHADER_TEXT2HEX} comp_data_hex HEX)
 
-    set(SHARE_TEXT2HEX ${CMAKE_SOURCE_DIR}/shaders/${SHADER_SRC_NAME_WE}.text2hex.txt)
-    file(WRITE ${SHARE_TEXT2HEX} "${comp_data}")
-    file(READ ${SHARE_TEXT2HEX} comp_data_hex HEX)
     string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," comp_data_hex ${comp_data_hex})
     string(FIND "${comp_data_hex}" "," tail_comma REVERSE)
     string(SUBSTRING "${comp_data_hex}" 0 ${tail_comma} comp_data_hex)
 
-    set(SHADER_HEADER ${CMAKE_SOURCE_DIR}/shaders/${SHADER_SRC_NAME_WE}.hex.h)
-    file(WRITE ${SHADER_HEADER} "static const char ${SHADER_SRC_NAME_WE}_comp_data[] = {${comp_data_hex}};\n")
-    set_source_files_properties(${SHADER_HEADER} PROPERTIES GENERATED TRUE)
-    list(APPEND SHADERS_HEX_FILES ${SHADER_HEADER})
+    file(WRITE ${SHADER_COMP_HEADER} "static const char ${SHADER_SRC_NAME_WE}_comp_data[] = {${comp_data_hex}};\n")
+    set_source_files_properties(${SHADER_COMP_HEADER} PROPERTIES GENERATED TRUE)
+    list(APPEND SHADERS_HEX_FILES ${SHADER_COMP_HEADER})
 endforeach()
+
+include_directories(${CMAKE_SOURCE_DIR}/cpp)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/shaders)
 
 add_custom_target(generate-spirv DEPENDS ${SHADERS_HEX_FILES})
 
