@@ -32,9 +32,6 @@ extern "C" RealCUGAN *realcugan_init(
     return realcugan;
 }
 
-extern "C" void realcugan_init_gpu_instance() {
-    ncnn::create_gpu_instance();
-}
 extern "C" int realcugan_get_gpu_count() {
     return ncnn::get_gpu_count();
 }

@@ -1,6 +1,5 @@
-use std::sync::atomic::{AtomicU8, Ordering::Relaxed};
-use std::{convert::TryFrom, sync::Arc};
 use std::ffi::CString;
+use std::path::{Path, PathBuf};
 
 use image::{DynamicImage, GrayAlphaImage, GrayImage, RgbaImage, RgbImage};
 use libc::{c_char, c_int, c_uchar, c_uint, c_void};
@@ -25,8 +24,6 @@ extern "C" {
         prepadding: c_int,
         sync_gap: c_int,
     ) -> *mut c_void;
-
-    fn realcugan_init_gpu_instance();
 
     fn realcugan_get_gpu_count() -> c_int;
 
@@ -60,8 +57,10 @@ pub struct RealCugan {
     pointer: *mut c_void,
     scale: i32,
     use_cpu: bool,
-    clones: Arc<AtomicU8>
+    builder: RealCuganBuilder
 }
+
+unsafe impl Send for RealCugan {}
 
 impl RealCugan {
 
@@ -69,12 +68,13 @@ impl RealCugan {
         pointer: *mut c_void,
         scale: i32,
         use_cpu: bool,
+        builder: RealCuganBuilder
     ) -> Self {
         Self {
             pointer,
             scale,
             use_cpu,
-            clones: Arc::new(AtomicU8::new(0))
+            builder
         }
     }
 
@@ -152,23 +152,23 @@ impl RealCugan {
         )
     }
 
-    pub fn upscale_raw_image(&self, image: Vec<u8>) -> Result<DynamicImage, String> {
-        image::load_from_memory(&image)
-            .map_err(|x| x.to_string())
-            .and_then(|i| self.upscale_image(i))
-    }
-
-    pub fn upscale_image(&self, image: DynamicImage) -> Result<DynamicImage, String> {
+    pub fn process_image(&self, image: DynamicImage) -> Result<DynamicImage, String> {
         let (image, channels) = self.prepare_image(image);
         let in_buffer = self.create_input_buffer(&image, channels)?;
         let out_buffer = self.create_output_buffer(&in_buffer, channels);
         self.process(in_buffer, out_buffer, channels)
     }
 
-    pub fn upscale_image_path(&self, path: &str) -> Result<DynamicImage, String> {
+    pub fn process_raw_image(&self, image: &[u8]) -> Result<DynamicImage, String> {
+        image::load_from_memory(image)
+            .map_err(|x| x.to_string())
+            .and_then(|i| self.process_image(i))
+    }
+
+    pub fn process_image_from_path<P: AsRef<Path>>(&self, path: &P) -> Result<DynamicImage, String> {
         let image = image::open(path)
             .map_err(|x| x.to_string())?;
-        self.upscale_image(image)
+        self.process_image(image)
     }
 
 }
@@ -184,23 +184,15 @@ impl Default for RealCugan {
 impl Clone for RealCugan {
 
     fn clone(&self) -> Self {
-        self.clones.fetch_add(1, Relaxed);
-        Self {
-            pointer: self.pointer,
-            scale: self.scale,
-            use_cpu: self.use_cpu,
-            clones: self.clones.clone()
-        }
+        self.builder.clone().build().unwrap()
     }
 
 }
 
 impl Drop for RealCugan {
     fn drop(&mut self) {
-        if self.clones.fetch_sub(1, Relaxed) <= 1 {
-            unsafe {
-                realcugan_free(self.pointer);
-            }
+        unsafe {
+            realcugan_free(self.pointer);
         }
     }
 }
@@ -223,13 +215,12 @@ pub struct RealCuganBuilder {
     threads: i32,
     tta_mode: bool,
     model: Model,
-    directory: String,
-    model_paths: (String, String),
+    directory: PathBuf,
+    model_paths: Option<(PathBuf, PathBuf)>,
 }
 
-impl RealCuganBuilder {
-
-    pub fn new() -> Self {
+impl Default for RealCuganBuilder {
+    fn default() -> Self {
         Self {
             gpu: 0,
             noise: -1,
@@ -239,13 +230,28 @@ impl RealCuganBuilder {
             sync_gap: 0,
             tta_mode: false,
             threads: 0,
-            model_paths: (String::new(), String::new()),
-            directory: {
-                std::env::current_dir()
-                    .map(|x| x.to_str().unwrap().to_string())
-                    .unwrap_or(String::new())
-            },
+            model_paths: None,
+            directory: std::env::current_dir().unwrap_or_default(),
         }
+    }
+}
+
+impl RealCuganBuilder {
+
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn new_from_files(bin: String, param: String) -> Self {
+        let scale = match() {
+            _ if bin.contains("2x") => 2,
+            _ if bin.contains("3x") => 3,
+            _ if bin.contains("4x") => 4,
+            _ => 1,
+        };
+        let mut this = Self::new().scale(scale);
+        this.model_paths = Some((PathBuf::from(bin), PathBuf::from(param)));
+        this
     }
 
     pub fn gpu(mut self, gpu: u32) -> Self {
@@ -254,28 +260,21 @@ impl RealCuganBuilder {
     }
 
     pub fn noise(mut self, noise: i32) -> Self {
-        if noise < -1 {
-            self.noise = -1;
-            println!("Warning: noise must be >= -1, setting noise to -1");
-        } else if noise > 3 {
-            self.noise = 3;
-            println!("Warning: noise must be <= 3, setting noise to 3");
-        } else {
-            self.noise = noise;
+        const MIN_NOISE: i32 = -1;
+        const MAX_NOISE: i32 = 3;
+        self.noise = noise.clamp(MIN_NOISE, MAX_NOISE);
+        if noise < MIN_NOISE || noise > MAX_NOISE {
+            println!("Noise value {} is out of range [-1, 3], clamping to {}", noise, self.noise);
         }
-        self.noise = noise;
         self
     }
 
     pub fn scale(mut self, scale: u32) -> Self {
-        if scale < 2 {
-            self.scale = 2;
-            println!("Warning: scale must be >= 2, setting scale to 2");
-        } else if scale > 4 {
-            self.scale = 4;
-            println!("Warning: scale must be <= 4, setting scale to 4");
-        } else {
-            self.scale = scale as i32;
+        const MIN_SCALE: u32 = 2;
+        const MAX_SCALE: u32 = 4;
+        self.scale = scale.clamp(MIN_SCALE, MAX_SCALE) as i32;
+        if scale < MIN_SCALE || scale > MAX_SCALE {
+            println!("Scale {} is out of range [{}, {}], clamping to {}", scale, MIN_SCALE, MAX_SCALE, self.scale);
         }
         self
     }
@@ -286,21 +285,19 @@ impl RealCuganBuilder {
     }
 
     pub fn tile_size(mut self, tile_size: u32) -> Self {
-        if tile_size > 32 {
+        const MAX_TILE_SIZE: u32 = 32;
+        self.tile_size = tile_size.min(MAX_TILE_SIZE) as i32;
+        if tile_size > MAX_TILE_SIZE {
             println!("Warning: tile_size must be <= 32, setting tile_size to 32");
-            self.tile_size = 32;
-        } else {
-            self.tile_size = tile_size as i32;
         }
         self
     }
 
     pub fn sync_gap(mut self, sync_gap: u32) -> Self {
-        if sync_gap > 3 {
-            println!("Warning: sync_gap must be <= 3, setting sync_gap to 3");
-            self.sync_gap = 3;
-        } else {
-            self.sync_gap = sync_gap as i32;
+        const MAX_SYNC_GAP: u32 = 3;
+        self.sync_gap = sync_gap.min(MAX_SYNC_GAP) as i32;
+        if sync_gap > MAX_SYNC_GAP {
+            println!("Sync gap {} is greater than maximum {}, clamping to {}", sync_gap, MAX_SYNC_GAP, self.sync_gap);
         }
         self
     }
@@ -315,8 +312,8 @@ impl RealCuganBuilder {
         self
     }
 
-    pub fn directory(mut self, directory: &str) -> Self {
-        self.directory = directory.to_string();
+    pub fn directory<P: AsRef<Path>>(mut self, directory: P) -> Self {
+        self.directory = directory.as_ref().to_path_buf();
         self
     }
 
@@ -330,7 +327,7 @@ impl RealCuganBuilder {
             2 => 18,
             3 => 14,
             4 => 19,
-            _ => panic!("invalid scale")
+            _ => unreachable!("Invalid scale: {}", self.scale)
         }
     }
 
@@ -342,8 +339,9 @@ impl RealCuganBuilder {
     }
 
     fn create_model_paths(&mut self) -> Result<(), String> {
+        let directory = self.directory.display();
         if !std::fs::exists(&self.directory).unwrap_or(false) {
-            return Err(format!("models directory {} does not exist", self.directory));
+            return Err(format!("models directory {} does not exist", directory));
         }
 
         let model = match self.model {
@@ -352,29 +350,39 @@ impl RealCuganBuilder {
             Model::Pro => "models-pro",
         };
 
-        let paths = match self.noise {
+        let (bin, param) = match self.noise {
             -1 => (
-                format!("{}/{}/up{}x-conservative.bin", self.directory, model, self.scale),
-                format!("{}/{}/up{}x-conservative.param", self.directory, model, self.scale)
+                format!("up{}x-conservative.bin", self.scale),
+                format!("up{}x-conservative.param", self.scale)
             ),
             0 => (
-                format!("{}/{}/up{}x-no-denoise.bin", self.directory, model, self.scale),
-                format!("{}/{}/up{}x-no-denoise.param", self.directory, model, self.scale)
+                format!("up{}x-no-denoise.bin", self.scale),
+                format!("up{}x-no-denoise.param", self.scale)
             ),
             _ => (
-                format!("{}/{}/up{}x-denoise{}x.bin", self.directory, model, self.scale, self.noise),
-                format!("{}/{}/up{}x-denoise{}x.param", self.directory, model, self.scale, self.noise)
+                format!("up{}x-denoise{}x.bin", self.scale, self.noise),
+                format!("up{}x-denoise{}x.param", self.scale, self.noise)
             )
         };
 
-        if !std::fs::exists(&paths.0).unwrap_or(false) {
-            return Err(format!("model file {} does not exist", &paths.0));
-        } else if !std::fs::exists(&paths.1).unwrap_or(false) {
-            return Err(format!("model file {} does not exist", &paths.1));
-        }
-
-        self.model_paths = paths;
+        self.model_paths = Some((
+            self.directory.join(model).join(bin),
+            self.directory.join(model).join(param),
+        ));
         Ok(())
+    }
+
+    fn validate_model_paths(&self) -> Result<(), String> {
+        if let Some(paths) = &self.model_paths {
+            if !std::fs::exists(&paths.0).unwrap_or(false) {
+                return Err(format!("model file {} does not exist", &paths.0.display()));
+            } else if !std::fs::exists(&paths.1).unwrap_or(false) {
+                return Err(format!("model file {} does not exist", &paths.1.display()));
+            }
+            Ok(())
+        } else {
+            Err(format!("empty model paths")) 
+        }
     }
     
     fn get_tile_size(&self) -> i32 {
@@ -439,7 +447,6 @@ impl RealCuganBuilder {
         if self.gpu == -1 {
             return Ok(())
         }
-        unsafe { realcugan_init_gpu_instance() }
         let count = unsafe { realcugan_get_gpu_count() } as i32;
         if self.gpu >= count {
             unsafe { realcugan_destroy_gpu_instance() }
@@ -448,9 +455,12 @@ impl RealCuganBuilder {
         Ok(())
     }
 
-    fn init_model(&self, realcugan: *mut c_void) {
-        let bin_path_cstr = CString::new(self.model_paths.0.clone()).unwrap();
-        let param_path_cstr = CString::new(self.model_paths.1.clone()).unwrap();
+    fn init_model(&self, realcugan: *mut c_void) -> Result<(), String> {
+        let (bin_path, param_path) = self.model_paths.as_ref().ok_or_else(|| format!("teste"))?;
+        let bin_path_cstr = CString::new(bin_path.to_str().unwrap())
+            .map_err(|_| format!("Failed to create CString for bin path"))?;
+        let param_path_cstr = CString::new(param_path.to_str().unwrap())
+            .map_err(|_| format!("Failed to create CString for param path"))?;
         unsafe {
             realcugan_load(
                 realcugan, 
@@ -458,9 +468,11 @@ impl RealCuganBuilder {
                 bin_path_cstr.as_ptr()
             )
         }
+        Ok(())
     }
 
     fn init(&self) -> Result<*mut c_void, String> {
+        self.validate_model_paths()?;
         self.init_gpu()?;
         let cugan = unsafe {
             realcugan_init(
@@ -469,36 +481,22 @@ impl RealCuganBuilder {
                 self.threads,
                 self.noise,
                 self.scale,
-                self.get_tile_size() as i32,
+                self.get_tile_size(),
                 self.get_prepadding(),
                 self.get_sync_gap(),
             )
         };
-        self.init_model(cugan);
+        self.init_model(cugan)?;
         Ok(cugan)
     }
 
     pub fn build(mut self) -> Result<RealCugan, String> {
-        self.create_model_paths()?;
+        if self.model_paths.is_none() {
+            self.create_model_paths()?;
+        }
         let cugan = self.init()?;
-        let realcugan = RealCugan::new(cugan, self.scale, self.gpu == -1);
+        let realcugan = RealCugan::new(cugan, self.scale, self.gpu == -1, self);
         Ok(realcugan)
-    }
-
-}
-
-pub fn new() -> RealCuganBuilder {
-    RealCuganBuilder::new()
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_upscale_image_path() {
-        let _ = RealCuganBuilder::new();
     }
 
 }
