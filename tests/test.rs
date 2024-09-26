@@ -1,18 +1,17 @@
 use std::path::Path;
 
+const IMAGE: &str = "./tests/image.jpg";
+const MODEL: &str = "./tests/up2x-conservative";
+
 #[test]
 fn base() {
-    // Use a test image path instead of command line arguments
-    let image = "./tests/image.jpg";
-    let model = "./tests/up2x-conservative";
-
     // Assert that the test image exists
-    assert!(Path::new(image).exists(), "Test image does not exist");
+    assert!(Path::new(IMAGE).exists(), "Test image does not exist");
 
     // Create RealCugan instance
     let result = realcugan_rs::RealCuganBuilder::new_from_files(
-        format!("{}.bin", model), 
-        format!("{}.param", model)
+        format!("{}.bin", MODEL), 
+        format!("{}.param", MODEL)
     ).build();
 
     // Assert that RealCugan instance was created successfully
@@ -20,7 +19,7 @@ fn base() {
     let realcugan = result.unwrap();
 
     // Open the original image
-    let d_image = image::open(image).expect("Failed to open test image");
+    let d_image = image::open(IMAGE).expect("Failed to open test image");
     let original_with = d_image.width();
     let original_height = d_image.height();
 
@@ -40,10 +39,32 @@ fn base() {
     );
 
     // Optionally, check file size to ensure upscaled image is larger
-    let original_metadata = std::fs::metadata(image).unwrap();
+    let original_metadata = std::fs::metadata(IMAGE).unwrap();
     let upscaled_metadata = std::fs::metadata(upscaled_save_path).unwrap();
     assert!(
         upscaled_metadata.len() > original_metadata.len(),
         "Upscaled image file is not larger than the original"
     );
+
+}
+
+#[test]
+fn threads() {
+    let realcugan = realcugan_rs::RealCuganBuilder::new_from_files(
+        format!("{}.bin", MODEL), 
+        format!("{}.param", MODEL)
+    ).build().unwrap();
+
+    let realcugan_clone = realcugan.clone();
+
+    let handle = std::thread::spawn(move || {
+        assert!(realcugan_clone.process_image_from_path(&std::path::PathBuf::from(IMAGE)).is_ok());
+    });
+
+    let handle2 = std::thread::spawn(move || {
+        assert!(realcugan.process_image_from_path(&std::path::PathBuf::from(IMAGE)).is_ok());
+    });
+
+    assert!(handle.join().is_ok());
+    assert!(handle2.join().is_ok());
 }
