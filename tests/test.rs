@@ -55,16 +55,26 @@ fn threads() {
         format!("{}.param", MODEL)
     ).build().unwrap();
 
-    let realcugan_clone = realcugan.clone();
+    let mut threads = Vec::new();
 
-    let handle = std::thread::spawn(move || {
-        assert!(realcugan_clone.process_image_from_path(&std::path::PathBuf::from(IMAGE)).is_ok());
-    });
+    for i in 0..10 {
 
-    let handle2 = std::thread::spawn(move || {
-        assert!(realcugan.process_image_from_path(&std::path::PathBuf::from(IMAGE)).is_ok());
-    });
+        let realcugan_clone = realcugan.clone();
 
-    assert!(handle.join().is_ok());
-    assert!(handle2.join().is_ok());
+        let handle = std::thread::spawn(move || {
+            let result = realcugan_clone.process_image_from_path(&std::path::PathBuf::from(IMAGE));
+            assert!(result.is_ok());
+            let upscaled_image = result.unwrap();
+            let path = format!("/tmp/upscaled{}.png", i);
+            upscaled_image.save_with_format(&path, image::ImageFormat::Png).unwrap();
+            assert!(Path::new(&path).exists(), "Failed to save upscaled image");
+        });
+
+        threads.push(handle);
+
+    }
+
+    for thread in threads {
+        assert!(thread.join().is_ok());
+    }
 }

@@ -1,5 +1,7 @@
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicPtr, AtomicU8, Ordering};
 
 use image::{DynamicImage, GrayAlphaImage, GrayImage, RgbaImage, RgbImage};
 use libc::{c_char, c_int, c_uchar, c_uint, c_void};
@@ -54,10 +56,10 @@ extern "C" {
 
 #[derive(Debug)]
 pub struct RealCugan {
-    pointer: *mut c_void,
+    pointer: Arc<AtomicPtr<c_void>>,
     scale: i32,
     use_cpu: bool,
-    builder: RealCuganBuilder
+    clones: Arc<AtomicU8>
 }
 
 unsafe impl Send for RealCugan {}
@@ -68,13 +70,12 @@ impl RealCugan {
         pointer: *mut c_void,
         scale: i32,
         use_cpu: bool,
-        builder: RealCuganBuilder
     ) -> Self {
         Self {
-            pointer,
+            pointer: Arc::new(AtomicPtr::new(pointer)),
             scale,
             use_cpu,
-            builder
+            clones: Arc::new(AtomicU8::new(0))
         }
     }
 
@@ -117,11 +118,12 @@ impl RealCugan {
 
     fn process(&self, in_buffer: Image, out_buffer: Image, channels: u8) -> Result<DynamicImage, String> {
         let mut mat_ptr = std::ptr::null_mut();
+        let ptr = self.pointer.load(Ordering::Acquire);
 
         if self.use_cpu {
             unsafe {
                 realcugan_process_cpu(
-                    self.pointer,
+                    ptr,
                     &in_buffer,
                     &out_buffer,
                     &mut mat_ptr,
@@ -130,7 +132,7 @@ impl RealCugan {
         } else {
             unsafe {
                 realcugan_process(
-                    self.pointer,
+                    ptr,
                     &in_buffer,
                     &out_buffer,
                     &mut mat_ptr,
@@ -173,6 +175,20 @@ impl RealCugan {
 
 }
 
+impl Clone for RealCugan {
+
+    fn clone(&self) -> Self {
+        self.clones.fetch_add(1, Ordering::Relaxed);
+        RealCugan {
+            pointer: self.pointer.clone(),
+            scale: self.scale,
+            use_cpu: self.use_cpu,
+            clones: self.clones.clone()
+        }
+    }
+
+}
+
 impl Default for RealCugan {
 
     fn default() -> Self {
@@ -181,18 +197,13 @@ impl Default for RealCugan {
 
 }
 
-impl Clone for RealCugan {
-
-    fn clone(&self) -> Self {
-        self.builder.clone().build().unwrap()
-    }
-
-}
-
 impl Drop for RealCugan {
     fn drop(&mut self) {
-        unsafe {
-            realcugan_free(self.pointer);
+        if self.clones.fetch_sub(1, Ordering::Relaxed) == 1 {
+            let ptr = self.pointer.load(Ordering::Acquire);
+            unsafe {
+                realcugan_free(ptr);
+            }
         }
     }
 }
@@ -495,7 +506,7 @@ impl RealCuganBuilder {
             self.create_model_paths()?;
         }
         let cugan = self.init()?;
-        let realcugan = RealCugan::new(cugan, self.scale, self.gpu == -1, self);
+        let realcugan = RealCugan::new(cugan, self.scale, self.gpu == -1);
         Ok(realcugan)
     }
 
