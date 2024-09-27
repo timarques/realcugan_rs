@@ -275,7 +275,7 @@ impl RealCuganBuilder {
         const MAX_NOISE: i32 = 3;
         self.noise = noise.clamp(MIN_NOISE, MAX_NOISE);
         if noise < MIN_NOISE || noise > MAX_NOISE {
-            println!("Noise value {} is out of range [-1, 3], clamping to {}", noise, self.noise);
+            println!("Warning: Noise value {} is out of range. Valid range is [-1, 3]. Clamped to {}.", noise, self.noise);
         }
         self
     }
@@ -285,7 +285,7 @@ impl RealCuganBuilder {
         const MAX_SCALE: u32 = 4;
         self.scale = scale.clamp(MIN_SCALE, MAX_SCALE) as i32;
         if scale < MIN_SCALE || scale > MAX_SCALE {
-            println!("Scale {} is out of range [{}, {}], clamping to {}", scale, MIN_SCALE, MAX_SCALE, self.scale);
+            println!("Warning: Scale {} is invalid. Valid scales are 2, 3, or 4. Set to {}.", scale, self.scale);
         }
         self
     }
@@ -299,7 +299,7 @@ impl RealCuganBuilder {
         const MAX_TILE_SIZE: u32 = 32;
         self.tile_size = tile_size.min(MAX_TILE_SIZE) as i32;
         if tile_size > MAX_TILE_SIZE {
-            println!("Warning: tile_size must be <= 32, setting tile_size to 32");
+            println!("Warning: Tile size {} exceeds maximum allowed (32). Set to 32.", tile_size);
         }
         self
     }
@@ -308,7 +308,7 @@ impl RealCuganBuilder {
         const MAX_SYNC_GAP: u32 = 3;
         self.sync_gap = sync_gap.min(MAX_SYNC_GAP) as i32;
         if sync_gap > MAX_SYNC_GAP {
-            println!("Sync gap {} is greater than maximum {}, clamping to {}", sync_gap, MAX_SYNC_GAP, self.sync_gap);
+            println!("Warning: Sync gap {} exceeds maximum allowed (3). Set to 3.", sync_gap);
         }
         self
     }
@@ -352,7 +352,7 @@ impl RealCuganBuilder {
     fn create_model_paths(&mut self) -> Result<(), String> {
         let directory = self.directory.display();
         if !std::fs::exists(&self.directory).unwrap_or(false) {
-            return Err(format!("models directory {} does not exist", directory));
+            return Err(format!("Error: Models directory '{}' does not exist.", directory));
         }
 
         let model = match self.model {
@@ -386,13 +386,13 @@ impl RealCuganBuilder {
     fn validate_model_paths(&self) -> Result<(), String> {
         if let Some(paths) = &self.model_paths {
             if !std::fs::exists(&paths.0).unwrap_or(false) {
-                return Err(format!("model file {} does not exist", &paths.0.display()));
+                return Err(format!("Error: Model file '{}' does not exist.", &paths.0.display()));
             } else if !std::fs::exists(&paths.1).unwrap_or(false) {
-                return Err(format!("model file {} does not exist", &paths.1.display()));
+                return Err(format!("Error: Model file '{}' does not exist.", &paths.1.display()));
             }
             Ok(())
         } else {
-            Err(format!("empty model paths")) 
+            Err("Error: Model paths are not set.".to_string())
         }
     }
     
@@ -461,17 +461,25 @@ impl RealCuganBuilder {
         let count = unsafe { realcugan_get_gpu_count() } as i32;
         if self.gpu >= count {
             unsafe { realcugan_destroy_gpu_instance() }
-            return Err(format!("gpu {} not found", self.gpu))
+            return Err(format!("Error: GPU {} not found. Available GPUs: 0 to {}.", self.gpu, count - 1))
         }
         Ok(())
     }
 
     fn init_model(&self, realcugan: *mut c_void) -> Result<(), String> {
-        let (bin_path, param_path) = self.model_paths.as_ref().ok_or_else(|| format!("teste"))?;
-        let bin_path_cstr = CString::new(bin_path.to_str().unwrap())
-            .map_err(|_| format!("Failed to create CString for bin path"))?;
-        let param_path_cstr = CString::new(param_path.to_str().unwrap())
-            .map_err(|_| format!("Failed to create CString for param path"))?;
+        let (bin_path, param_path) = self.model_paths.as_ref()
+            .ok_or_else(|| "Error: Model paths are not set.".to_string())?;
+    
+        let bin_path_str = bin_path.to_str()
+            .ok_or_else(|| format!("Error: Invalid UTF-8 in bin path: {}", bin_path.display()))?;
+        let param_path_str = param_path.to_str()
+            .ok_or_else(|| format!("Error: Invalid UTF-8 in param path: {}", param_path.display()))?;
+    
+        let bin_path_cstr = CString::new(bin_path_str)
+            .map_err(|e| format!("Error: Failed to create CString for bin path: {}", e))?;
+        let param_path_cstr = CString::new(param_path_str)
+            .map_err(|e| format!("Error: Failed to create CString for param path: {}", e))?;
+    
         unsafe {
             realcugan_load(
                 realcugan, 
@@ -506,6 +514,7 @@ impl RealCuganBuilder {
             self.create_model_paths()?;
         }
         let cugan = self.init()?;
+        println!("{:?}", self);
         let realcugan = RealCugan::new(cugan, self.scale, self.gpu == -1);
         Ok(realcugan)
     }
