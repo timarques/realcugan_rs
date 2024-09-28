@@ -9,10 +9,10 @@ fn base() {
     assert!(Path::new(IMAGE).exists(), "Test image does not exist");
 
     // Create RealCugan instance
-    let result = realcugan_rs::RealCuganBuilder::new_from_files(
-        format!("{}.bin", MODEL), 
-        format!("{}.param", MODEL)
-    ).build();
+    let result = realcugan_rs::RealCugan::from_files(
+        &format!("{}.param", MODEL),
+        &format!("{}.bin", MODEL)
+    );
 
     // Assert that RealCugan instance was created successfully
     assert!(result.is_ok(), "{}", result.err().unwrap().to_string());
@@ -50,10 +50,10 @@ fn base() {
 
 #[test]
 fn threads() {
-    let realcugan = realcugan_rs::RealCuganBuilder::new_from_files(
-        format!("{}.bin", MODEL), 
-        format!("{}.param", MODEL)
-    ).build().unwrap();
+    let realcugan = realcugan_rs::RealCugan::from_files(
+        &format!("{}.param", MODEL),
+        &format!("{}.bin", MODEL)
+    ).unwrap();
 
     let mut threads = Vec::new();
 

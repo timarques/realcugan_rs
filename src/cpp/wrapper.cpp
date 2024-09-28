@@ -5,6 +5,10 @@
 #endif
 
 #include "realcugan.h"
+#include "cpu.h"
+#include <algorithm>
+#include <vector>
+#include <map>
 
 typedef struct Image {
   unsigned char *data;

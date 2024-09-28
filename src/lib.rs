@@ -109,7 +109,6 @@ impl RealCugan {
                     32
                 }
             },
-    
             3 => {
                 if heap_budget > 330 {
                     400
@@ -123,7 +122,6 @@ impl RealCugan {
                     32
                 }
             },
-    
             4 => {
                 if heap_budget > 1690 {
                     400
@@ -137,7 +135,6 @@ impl RealCugan {
                     32
                 }
             },
-    
             _ => {
                 32
             }
@@ -220,6 +217,10 @@ impl RealCugan {
             use_cpu: gpu == -1,
             clones: Arc::new(AtomicU8::new(0)),
         })
+    }
+
+    pub fn from_files(param: &str, bin: &str) -> Result<Self, String> {
+        RealCuganBuilder::new().files(param, bin).build()
     }
 
     fn convert_image(width: u32, height: u32, channels: u8, bytes: Vec<u8>) -> Result<DynamicImage, String> {
@@ -391,9 +392,10 @@ pub struct RealCuganBuilder {
     tile_size: i32,
     sync_gap: i32,
     threads: i32,
-    tta_mode: bool,
+    tta: bool,
     model: String,
     directory: PathBuf,
+    files: Option<(String, String)>,
 }
 
 impl Default for RealCuganBuilder {
@@ -404,10 +406,11 @@ impl Default for RealCuganBuilder {
             scale: 2,
             model: format!("models-se"),
             tile_size: 0,
-            sync_gap: 0,
-            tta_mode: false,
+            sync_gap: 3,
+            tta: false,
             threads: 0,
             directory: std::env::current_dir().unwrap_or_default(),
+            files: None,
         }
     }
 }
@@ -416,6 +419,33 @@ impl RealCuganBuilder {
 
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn files(mut self, param: &str, bin: &str) -> Self {
+        self.noise = if param.contains("no-denoise") {
+            0
+        } else if param.contains("conservative") {
+            1
+        } else if param.contains("denoise2x") {
+            2
+        } else if param.contains("denoise3x") {
+            3
+        } else {
+            self.noise
+        };
+
+        self.scale = if param.contains("up2x") {
+            2
+        } else if param.contains("up3x") {
+            3
+        } else if param.contains("up4x") {
+            4
+        } else {
+            self.scale
+        };
+
+        self.files = Some((param.to_string(), bin.to_string()));
+        self
     }
 
     pub fn gpu(mut self, gpu: u32) -> Self {
@@ -467,8 +497,8 @@ impl RealCuganBuilder {
         self
     }
 
-    pub fn tta_mode(mut self, tta_mode: bool) -> Self {
-        self.tta_mode = tta_mode;
+    pub fn tta(mut self, tta: bool) -> Self {
+        self.tta = tta;
         self
     }
 
@@ -487,39 +517,49 @@ impl RealCuganBuilder {
         self
     }
 
-    fn create_model_paths(&self) -> Result<(String, String), String> {
+    fn get_model_paths(&self) -> Result<(String, String), String> {
+        if let Some(files) = self.files.clone() {
+            let param = std::fs::canonicalize(&files.0)
+                .map_err(|_| format!("Failed to canonicalize file path {}", &files.0))
+                .map(|p| p.to_string_lossy().to_string())?;
+            let bin = std::fs::canonicalize(&files.1)
+                .map_err(|_| format!("Failed to canonicalize file path {}", &files.1))
+                .map(|p| p.to_string_lossy().to_string())?;
+            return Ok((param, bin))
+        }
+
         let directory = self.directory.display();
         if !std::fs::exists(&self.directory).unwrap_or(false) {
             return Err(format!("models directory {} does not exist", directory));
         }
 
-        let (bin, param) = match self.noise {
+        let (param, bin) = match self.noise {
             -1 => (
+                format!("up{}x-conservative.param", self.scale),
                 format!("up{}x-conservative.bin", self.scale),
-                format!("up{}x-conservative.param", self.scale)
             ),
             0 => (
+                format!("up{}x-no-denoise.param", self.scale),
                 format!("up{}x-no-denoise.bin", self.scale),
-                format!("up{}x-no-denoise.param", self.scale)
             ),
             _ => (
+                format!("up{}x-denoise{}x.param", self.scale, self.noise),
                 format!("up{}x-denoise{}x.bin", self.scale, self.noise),
-                format!("up{}x-denoise{}x.param", self.scale, self.noise)
             )
         };
 
         Ok((
-            self.directory.join(&self.model).join(bin).to_str().unwrap().to_string(),
             self.directory.join(&self.model).join(param).to_str().unwrap().to_string(),
+            self.directory.join(&self.model).join(bin).to_str().unwrap().to_string(),
         ))
     }
 
-    pub fn build(self) -> Result<RealCugan, String> {
-        let (bin, param) = self.create_model_paths()?;
+    pub fn build(&self) -> Result<RealCugan, String> {
+        let (param, bin) = self.get_model_paths()?;
         RealCugan::new(
             self.gpu,
             self.threads,
-            self.tta_mode,
+            self.tta,
             self.scale,
             self.noise,
             self.sync_gap,
