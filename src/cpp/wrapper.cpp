@@ -13,16 +13,8 @@ typedef struct Image {
   int c;
 } Image;
 
-extern "C" RealCUGAN *realcugan_init(int gpuid, bool tta_mode, int num_threads,
-                                     int noise, int scale, int tilesize,
-                                     int prepadding, int syncgap) {
-  auto realcugan = new RealCUGAN(gpuid, tta_mode, num_threads);
-  realcugan->noise = noise;
-  realcugan->scale = scale;
-  realcugan->tilesize = tilesize;
-  realcugan->prepadding = prepadding;
-  realcugan->syncgap = syncgap;
-  return realcugan;
+extern "C" RealCUGAN *realcugan_init(int gpuid, bool tta_mode, int num_threads) {
+  return new RealCUGAN(gpuid, tta_mode, num_threads);
 }
 
 extern "C" int realcugan_get_gpu_count() { return ncnn::get_gpu_count(); }
@@ -42,34 +34,15 @@ extern "C" int realcugan_load(RealCUGAN *realcugan, const char *param_path,
 #endif
 }
 
-extern "C" void realcugan_set_parameters(RealCUGAN *realcugan, int noise,
-                                        int scale, int prepadding, int syncgap,
+extern "C" void realcugan_set_parameters(RealCUGAN *realcugan,
+                                        int scale, int noise,
+                                        int prepadding, int syncgap,
                                         int tilesize) {
   realcugan->noise = noise;
   realcugan->scale = scale;
-  realcugan->noise = prepadding;
-  realcugan->scale = syncgap;
-  realcugan->scale = tilesize;
-}
-
-extern "C" void realcugan_set_noise(RealCUGAN *realcugan, int noise) {
-  realcugan->noise = noise;
-}
-
-extern "C" void realcugan_set_scale(RealCUGAN *realcugan, int scale) {
-  realcugan->scale = scale;
-}
-
-extern "C" void realcugan_set_prepadding(RealCUGAN *realcugan, int prepadding) {
-  realcugan->noise = prepadding;
-}
-
-extern "C" void realcugan_set_syncgap(RealCUGAN *realcugan, int syncgap) {
-  realcugan->scale = syncgap;
-}
-
-extern "C" void realcugan_set_tilesize(RealCUGAN *realcugan, int tilesize) {
-  realcugan->scale = tilesize;
+  realcugan->prepadding = prepadding;
+  realcugan->syncgap = syncgap;
+  realcugan->tilesize = tilesize;
 }
 
 extern "C" int realcugan_process(RealCUGAN *realcugan, const Image *in_image,

@@ -20,12 +20,16 @@ extern "C" {
         gpuid: c_int,
         tta_mode: bool,
         num_threads: c_int,
-        noise: c_int,
+    ) -> *mut c_void;
+
+    fn realcugan_set_parameters(
+        realcugan: *mut c_void,
         scale: c_int,
-        tilesize: c_int,
+        noise: c_int,
         prepadding: c_int,
         sync_gap: c_int,
-    ) -> *mut c_void;
+        tilesize: c_int,
+    );
 
     fn realcugan_get_gpu_count() -> c_int;
 
@@ -66,17 +70,156 @@ unsafe impl Send for RealCugan {}
 
 impl RealCugan {
 
-    fn new(
-        pointer: *mut c_void,
-        scale: i32,
-        use_cpu: bool
-    ) -> Self {
-        Self {
-            pointer: Arc::new(AtomicPtr::new(pointer)),
-            scale,
-            use_cpu,
-            clones: Arc::new(AtomicU8::new(0)),
+    fn get_prepadding(scale: i32) -> Result<i32, String> {
+        match scale {
+            2 => Ok(18),
+            3 => Ok(14),
+            4 => Ok(19),
+            _ => Err(format!("Invalid scale value: {}. Expected 2, 3, or 4.", scale)),
         }
+    }
+
+    fn get_sync_gap(sync_gap: i32, model_str: &str) -> i32 {
+        if model_str.contains("models-se") {
+            0
+        } else {
+            sync_gap
+        }
+    }
+
+    fn get_tile_size(tile_size: i32, scale: i32, gpu: i32) -> i32 {
+        if tile_size != 0 {
+            return tile_size
+        }
+    
+        if gpu == -1 {
+            return 400
+        }
+    
+        let heap_budget = unsafe { realcugan_get_heap_budget(gpu) };
+        match scale {
+            2 => {
+                if heap_budget > 1300 {
+                    400
+                } else if heap_budget > 800 {
+                    300
+                } else if heap_budget > 200 {
+                    100
+                } else {
+                    32
+                }
+            },
+    
+            3 => {
+                if heap_budget > 330 {
+                    400
+                } else if heap_budget > 1900 {
+                    300
+                } else if heap_budget > 950 {
+                    200
+                } else if heap_budget > 320 {
+                    100
+                } else {
+                    32
+                }
+            },
+    
+            4 => {
+                if heap_budget > 1690 {
+                    400
+                } else if heap_budget > 980 {
+                    300
+                } else if heap_budget > 530 {
+                    200
+                } else if heap_budget > 240 {
+                    100
+                } else {
+                    32
+                }
+            },
+    
+            _ => {
+                32
+            }
+        }
+    
+    }
+
+    fn validate_gpu(gpu: i32) -> Result<(), String> {
+        if gpu == -1 {
+            return Ok(())
+        }
+        let count = unsafe { realcugan_get_gpu_count() };
+        if gpu >= count {
+            unsafe { realcugan_destroy_gpu_instance() }
+            return Err(format!("gpu {} not found", gpu))
+        }
+        Ok(())
+    }
+
+    fn validate_model_paths(param: &str, bin: &str) -> Result<(), String> {
+        if !std::fs::exists(&param).unwrap_or(false) {
+            return Err(format!("model file {} does not exist", &param));
+        } else if !std::fs::exists(&bin).unwrap_or(false) {
+            return Err(format!("model file {} does not exist", &bin));
+        }
+        Ok(())
+    }
+
+    fn init_model(realcugan: *mut c_void, param: &str, bin: &str) -> Result<(), String> {
+        let bin_path_cstr = CString::new(bin)
+            .map_err(|_| format!("Failed to create CString for bin path"))?;
+        let param_path_cstr = CString::new(param)
+            .map_err(|_| format!("Failed to create CString for param path"))?;
+        unsafe { realcugan_load(realcugan, param_path_cstr.as_ptr(), bin_path_cstr.as_ptr()) }
+        Ok(())
+    }
+
+    fn create_realcugan(gpu: i32, threads: i32, tta: bool) -> *mut c_void {
+        unsafe {
+            realcugan_init(
+                gpu,
+                tta,
+                threads
+            )
+        }
+    }
+
+    pub fn new(
+        gpu: i32,
+        threads: i32,
+        tta: bool,
+
+        scale: i32,
+        noise: i32,
+        sync_gap: i32,
+        tile_size: i32,
+        
+        model_param: &str,
+        model_bin: &str,
+    ) -> Result<Self, String> {
+        Self::validate_gpu(gpu)?;
+        Self::validate_model_paths(model_param, model_bin)?;
+        let pointer = Self::create_realcugan(gpu, threads, tta);
+        Self::init_model(pointer, model_param, model_bin)?;
+
+        unsafe {
+            realcugan_set_parameters(
+                pointer,
+                scale,
+                noise,
+                Self::get_prepadding(scale)?,
+                Self::get_sync_gap(sync_gap, model_bin),
+                Self::get_tile_size(tile_size, scale, gpu)
+            );
+        }
+
+        Ok(Self {
+            pointer: Arc::new(AtomicPtr::new(pointer)),
+            scale: scale,
+            use_cpu: gpu == -1,
+            clones: Arc::new(AtomicU8::new(0)),
+        })
     }
 
     fn convert_image(width: u32, height: u32, channels: u8, bytes: Vec<u8>) -> Result<DynamicImage, String> {
@@ -216,6 +359,30 @@ pub enum Model {
     Se,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum Noise {
+    Default,        // -1
+    Off,            // 0
+    Low,            // 1
+    Medium,         // 2
+    High,           // 3
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum Scale {
+    Double,   // 2x
+    Triple,   // 3x
+    Quadruple // 4x
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum SyncGap {
+    Disabled,      // 0
+    Loose,         // 1
+    Moderate,      // 2
+    Strict,        // 3 (default)
+}
+
 #[derive(Debug, Clone)]
 pub struct RealCuganBuilder {
     gpu: i32,
@@ -225,9 +392,8 @@ pub struct RealCuganBuilder {
     sync_gap: i32,
     threads: i32,
     tta_mode: bool,
-    model: Model,
+    model: String,
     directory: PathBuf,
-    model_paths: Option<(PathBuf, PathBuf)>,
 }
 
 impl Default for RealCuganBuilder {
@@ -236,12 +402,11 @@ impl Default for RealCuganBuilder {
             gpu: 0,
             noise: -1,
             scale: 2,
-            model: Model::Se,
+            model: format!("models-se"),
             tile_size: 0,
             sync_gap: 0,
             tta_mode: false,
             threads: 0,
-            model_paths: None,
             directory: std::env::current_dir().unwrap_or_default(),
         }
     }
@@ -253,63 +418,52 @@ impl RealCuganBuilder {
         Self::default()
     }
 
-    pub fn new_from_files(bin: String, param: String) -> Self {
-        let scale = match() {
-            _ if bin.contains("2x") => 2,
-            _ if bin.contains("3x") => 3,
-            _ if bin.contains("4x") => 4,
-            _ => 1,
-        };
-        let mut this = Self::new().scale(scale);
-        this.model_paths = Some((PathBuf::from(bin), PathBuf::from(param)));
-        this
-    }
-
     pub fn gpu(mut self, gpu: u32) -> Self {
         self.gpu = gpu as i32;
         self
     }
 
-    pub fn noise(mut self, noise: i32) -> Self {
-        const MIN_NOISE: i32 = -1;
-        const MAX_NOISE: i32 = 3;
-        self.noise = noise.clamp(MIN_NOISE, MAX_NOISE);
-        if noise < MIN_NOISE || noise > MAX_NOISE {
-            println!("Warning: Noise value {} is out of range. Valid range is [-1, 3]. Clamped to {}.", noise, self.noise);
-        }
+    pub fn noise(mut self, noise: Noise) -> Self {
+        self.noise = match noise {
+            Noise::Default => -1,
+            Noise::Off => 0,
+            Noise::Low => 1,
+            Noise::Medium => 2,
+            Noise::High => 3
+        };
         self
     }
 
-    pub fn scale(mut self, scale: u32) -> Self {
-        const MIN_SCALE: u32 = 2;
-        const MAX_SCALE: u32 = 4;
-        self.scale = scale.clamp(MIN_SCALE, MAX_SCALE) as i32;
-        if scale < MIN_SCALE || scale > MAX_SCALE {
-            println!("Warning: Scale {} is invalid. Valid scales are 2, 3, or 4. Set to {}.", scale, self.scale);
-        }
+    pub fn scale(mut self, scale: Scale) -> Self {
+        self.scale = match scale {
+            Scale::Double => 2,
+            Scale::Triple => 3,
+            Scale::Quadruple => 4
+        };
         self
     }
 
     pub fn model(mut self, model: Model) -> Self {
-        self.model = model;
+        self.model = match model {
+            Model::Se => "models-se",
+            Model::Nose => "models-nose",
+            Model::Pro => "models-pro",
+        }.to_string();
         self
     }
 
     pub fn tile_size(mut self, tile_size: u32) -> Self {
-        const MAX_TILE_SIZE: u32 = 32;
-        self.tile_size = tile_size.min(MAX_TILE_SIZE) as i32;
-        if tile_size > MAX_TILE_SIZE {
-            println!("Warning: Tile size {} exceeds maximum allowed (32). Set to 32.", tile_size);
-        }
+        self.tile_size = tile_size as i32;
         self
     }
 
-    pub fn sync_gap(mut self, sync_gap: u32) -> Self {
-        const MAX_SYNC_GAP: u32 = 3;
-        self.sync_gap = sync_gap.min(MAX_SYNC_GAP) as i32;
-        if sync_gap > MAX_SYNC_GAP {
-            println!("Warning: Sync gap {} exceeds maximum allowed (3). Set to 3.", sync_gap);
-        }
+    pub fn sync_gap(mut self, sync_gap: SyncGap) -> Self {
+        self.sync_gap = match sync_gap {
+            SyncGap::Disabled => 0,
+            SyncGap::Loose => 1,
+            SyncGap::Moderate => 2,
+            SyncGap::Strict => 3,
+        };
         self
     }
 
@@ -333,33 +487,11 @@ impl RealCuganBuilder {
         self
     }
 
-    fn get_prepadding(&self) -> i32 {
-        match self.scale {
-            2 => 18,
-            3 => 14,
-            4 => 19,
-            _ => unreachable!("Invalid scale: {}", self.scale)
-        }
-    }
-
-    fn get_sync_gap(&self) -> i32 {
-        match self.model {
-            Model::Se => 0,
-            _ => self.sync_gap
-        }
-    }
-
-    fn create_model_paths(&mut self) -> Result<(), String> {
+    fn create_model_paths(&self) -> Result<(String, String), String> {
         let directory = self.directory.display();
         if !std::fs::exists(&self.directory).unwrap_or(false) {
             return Err(format!("models directory {} does not exist", directory));
         }
-
-        let model = match self.model {
-            Model::Se => "models-se",
-            Model::Nose => "models-nose",
-            Model::Pro => "models-pro",
-        };
 
         let (bin, param) = match self.noise {
             -1 => (
@@ -376,138 +508,25 @@ impl RealCuganBuilder {
             )
         };
 
-        self.model_paths = Some((
-            self.directory.join(model).join(bin),
-            self.directory.join(model).join(param),
-        ));
-        Ok(())
+        Ok((
+            self.directory.join(&self.model).join(bin).to_str().unwrap().to_string(),
+            self.directory.join(&self.model).join(param).to_str().unwrap().to_string(),
+        ))
     }
 
-    fn validate_model_paths(&self) -> Result<(), String> {
-        if let Some(paths) = &self.model_paths {
-            if !std::fs::exists(&paths.0).unwrap_or(false) {
-                return Err(format!("model file {} does not exist", &paths.0.display()));
-            } else if !std::fs::exists(&paths.1).unwrap_or(false) {
-                return Err(format!("model file {} does not exist", &paths.1.display()));
-            }
-            Ok(())
-        } else {
-            Err(format!("empty model paths")) 
-        }
-    }
-    
-    fn get_tile_size(&self) -> i32 {
-        if self.tile_size != 0 {
-            return self.tile_size
-        }
-    
-        if self.gpu == -1 {
-            return 400
-        }
-    
-        let heap_budget = unsafe { realcugan_get_heap_budget(self.gpu) };
-        match self.scale {
-            2 => {
-                if heap_budget > 1300 {
-                    400
-                } else if heap_budget > 800 {
-                    300
-                } else if heap_budget > 200 {
-                    100
-                } else {
-                    32
-                }
-            },
-    
-            3 => {
-                if heap_budget > 330 {
-                    400
-                } else if heap_budget > 1900 {
-                    300
-                } else if heap_budget > 950 {
-                    200
-                } else if heap_budget > 320 {
-                    100
-                } else {
-                    32
-                }
-            },
-    
-            4 => {
-                if heap_budget > 1690 {
-                    400
-                } else if heap_budget > 980 {
-                    300
-                } else if heap_budget > 530 {
-                    200
-                } else if heap_budget > 240 {
-                    100
-                } else {
-                    32
-                }
-            },
-    
-            _ => {
-                32
-            }
-        }
-    
-    }
-
-    fn init_gpu(&self) -> Result<(), String> {
-        if self.gpu == -1 {
-            return Ok(())
-        }
-        let count = unsafe { realcugan_get_gpu_count() } as i32;
-        if self.gpu >= count {
-            unsafe { realcugan_destroy_gpu_instance() }
-            return Err(format!("gpu {} not found", self.gpu))
-        }
-        Ok(())
-    }
-
-    fn init_model(&self, realcugan: *mut c_void) -> Result<(), String> {
-        let (bin_path, param_path) = self.model_paths.as_ref().ok_or_else(|| format!("teste"))?;
-        let bin_path_cstr = CString::new(bin_path.to_str().unwrap())
-            .map_err(|_| format!("Failed to create CString for bin path"))?;
-        let param_path_cstr = CString::new(param_path.to_str().unwrap())
-            .map_err(|_| format!("Failed to create CString for param path"))?;
-        unsafe {
-            realcugan_load(
-                realcugan, 
-                param_path_cstr.as_ptr(), 
-                bin_path_cstr.as_ptr()
-            )
-        }
-        Ok(())
-    }
-
-    fn init(&self) -> Result<*mut c_void, String> {
-        self.validate_model_paths()?;
-        self.init_gpu()?;
-        let cugan = unsafe {
-            realcugan_init(
-                self.gpu,
-                self.tta_mode,
-                self.threads,
-                self.noise,
-                self.scale,
-                self.get_tile_size(),
-                self.get_prepadding(),
-                self.get_sync_gap(),
-            )
-        };
-        self.init_model(cugan)?;
-        Ok(cugan)
-    }
-
-    pub fn build(mut self) -> Result<RealCugan, String> {
-        if self.model_paths.is_none() {
-            self.create_model_paths()?;
-        }
-        let cugan = self.init()?;
-        let realcugan = RealCugan::new(cugan, self.scale, self.gpu == -1);
-        Ok(realcugan)
+    pub fn build(self) -> Result<RealCugan, String> {
+        let (bin, param) = self.create_model_paths()?;
+        RealCugan::new(
+            self.gpu,
+            self.threads,
+            self.tta_mode,
+            self.scale,
+            self.noise,
+            self.sync_gap,
+            self.tile_size,
+            &param,
+            &bin
+        )
     }
 
 }
