@@ -69,13 +69,13 @@ impl RealCugan {
     fn new(
         pointer: *mut c_void,
         scale: i32,
-        use_cpu: bool,
+        use_cpu: bool
     ) -> Self {
         Self {
             pointer: Arc::new(AtomicPtr::new(pointer)),
             scale,
             use_cpu,
-            clones: Arc::new(AtomicU8::new(0))
+            clones: Arc::new(AtomicU8::new(0)),
         }
     }
 
@@ -143,8 +143,8 @@ impl RealCugan {
         let length = usize::try_from(out_buffer.h * out_buffer.w * out_buffer.c)
             .map_err(|e| format!("Invalid buffer length: {}", e))?;
 
-        let copied_bytes = unsafe {std::slice::from_raw_parts(out_buffer.data as *const u8, length).to_vec()};
-        unsafe { realcugan_free_image(mat_ptr); }
+        let copied_bytes = unsafe { std::slice::from_raw_parts(out_buffer.data as *const u8, length).to_vec() };
+        unsafe { realcugan_free_image(mat_ptr) }
 
         Self::convert_image(
             out_buffer.w as u32,
@@ -158,6 +158,7 @@ impl RealCugan {
         let (image, channels) = self.prepare_image(image);
         let in_buffer = self.create_input_buffer(&image, channels)?;
         let out_buffer = self.create_output_buffer(&in_buffer, channels);
+
         self.process(in_buffer, out_buffer, channels)
     }
 
@@ -183,7 +184,7 @@ impl Clone for RealCugan {
             pointer: self.pointer.clone(),
             scale: self.scale,
             use_cpu: self.use_cpu,
-            clones: self.clones.clone()
+            clones: self.clones.clone(),
         }
     }
 
@@ -199,11 +200,10 @@ impl Default for RealCugan {
 
 impl Drop for RealCugan {
     fn drop(&mut self) {
-        if self.clones.fetch_sub(1, Ordering::Relaxed) == 1 {
+        let clones = self.clones.fetch_sub(1, Ordering::Relaxed);
+        if clones == 1 {
             let ptr = self.pointer.load(Ordering::Acquire);
-            unsafe {
-                realcugan_free(ptr);
-            }
+            unsafe { realcugan_free(ptr) }
         }
     }
 }
@@ -352,7 +352,7 @@ impl RealCuganBuilder {
     fn create_model_paths(&mut self) -> Result<(), String> {
         let directory = self.directory.display();
         if !std::fs::exists(&self.directory).unwrap_or(false) {
-            return Err(format!("Error: Models directory '{}' does not exist.", directory));
+            return Err(format!("models directory {} does not exist", directory));
         }
 
         let model = match self.model {
@@ -386,13 +386,13 @@ impl RealCuganBuilder {
     fn validate_model_paths(&self) -> Result<(), String> {
         if let Some(paths) = &self.model_paths {
             if !std::fs::exists(&paths.0).unwrap_or(false) {
-                return Err(format!("Error: Model file '{}' does not exist.", &paths.0.display()));
+                return Err(format!("model file {} does not exist", &paths.0.display()));
             } else if !std::fs::exists(&paths.1).unwrap_or(false) {
-                return Err(format!("Error: Model file '{}' does not exist.", &paths.1.display()));
+                return Err(format!("model file {} does not exist", &paths.1.display()));
             }
             Ok(())
         } else {
-            Err("Error: Model paths are not set.".to_string())
+            Err(format!("empty model paths")) 
         }
     }
     
@@ -461,25 +461,17 @@ impl RealCuganBuilder {
         let count = unsafe { realcugan_get_gpu_count() } as i32;
         if self.gpu >= count {
             unsafe { realcugan_destroy_gpu_instance() }
-            return Err(format!("Error: GPU {} not found. Available GPUs: 0 to {}.", self.gpu, count - 1))
+            return Err(format!("gpu {} not found", self.gpu))
         }
         Ok(())
     }
 
     fn init_model(&self, realcugan: *mut c_void) -> Result<(), String> {
-        let (bin_path, param_path) = self.model_paths.as_ref()
-            .ok_or_else(|| "Error: Model paths are not set.".to_string())?;
-    
-        let bin_path_str = bin_path.to_str()
-            .ok_or_else(|| format!("Error: Invalid UTF-8 in bin path: {}", bin_path.display()))?;
-        let param_path_str = param_path.to_str()
-            .ok_or_else(|| format!("Error: Invalid UTF-8 in param path: {}", param_path.display()))?;
-    
-        let bin_path_cstr = CString::new(bin_path_str)
-            .map_err(|e| format!("Error: Failed to create CString for bin path: {}", e))?;
-        let param_path_cstr = CString::new(param_path_str)
-            .map_err(|e| format!("Error: Failed to create CString for param path: {}", e))?;
-    
+        let (bin_path, param_path) = self.model_paths.as_ref().ok_or_else(|| format!("teste"))?;
+        let bin_path_cstr = CString::new(bin_path.to_str().unwrap())
+            .map_err(|_| format!("Failed to create CString for bin path"))?;
+        let param_path_cstr = CString::new(param_path.to_str().unwrap())
+            .map_err(|_| format!("Failed to create CString for param path"))?;
         unsafe {
             realcugan_load(
                 realcugan, 
@@ -514,7 +506,6 @@ impl RealCuganBuilder {
             self.create_model_paths()?;
         }
         let cugan = self.init()?;
-        println!("{:?}", self);
         let realcugan = RealCugan::new(cugan, self.scale, self.gpu == -1);
         Ok(realcugan)
     }
