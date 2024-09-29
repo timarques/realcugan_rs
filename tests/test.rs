@@ -46,6 +46,7 @@ fn base() {
         upscaled_metadata.len() > original_metadata.len(),
         "Upscaled image file is not larger than the original"
     );
+    let _ = std::fs::remove_file(&upscaled_save_path);
 
 }
 
@@ -70,6 +71,7 @@ fn threads() {
             let path = format!("/tmp/upscaled{}.png", i);
             upscaled_image.save_with_format(&path, image::ImageFormat::Png).unwrap();
             assert!(Path::new(&path).exists(), "Failed to save upscaled image");
+            let _ = std::fs::remove_file(&path);
         });
 
         threads.push(handle);
@@ -91,5 +93,5 @@ fn model() {
     let path = "/tmp/upscaled_embeded_models.png";
     upscaled_image.save_with_format(path, image::ImageFormat::Png).unwrap();
     assert!(Path::new(&path).exists(), "Failed to save upscaled image");
-    //let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&path);
 }
