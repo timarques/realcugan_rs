@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicPtr, AtomicU8, Ordering};
 use image::{DynamicImage, GrayAlphaImage, GrayImage, RgbImage, RgbaImage};
 use libc::{c_char, c_int, c_uchar, c_uint, c_void, FILE};
 
+#[cfg(any(feature = "models-nose", feature = "models-pro", feature = "models-se"))]
 pub use build::Model;
 pub use build::SyncGap;
 
@@ -180,6 +181,7 @@ impl RealCugan {
         })
     }
 
+    #[cfg(any(feature = "models-nose", feature = "models-pro", feature = "models-se"))]
     pub fn from_model(model: Model) -> Self {
         build::Builder::new().model(model).unwrap()
     }
@@ -313,30 +315,44 @@ mod build {
 
     use super::RealCugan;
 
+    #[cfg(any(feature = "models-nose", feature = "models-pro", feature = "models-se"))]
     #[derive(Debug, Copy, Clone, PartialEq)]
     pub enum Model {
+        #[cfg(feature = "models-se")]
         Se2xNoDenoise,
+        #[cfg(feature = "models-se")]
         Se2xConservative,
+        #[cfg(feature = "models-se")]
         Se2xLowDenoise,
+        #[cfg(feature = "models-se")]
         Se2xMediumDenoise,
+        #[cfg(feature = "models-se")]
         Se2xHighDenoise,
-
+        #[cfg(feature = "models-se")]
         Se3xNoDenoise,
+        #[cfg(feature = "models-se")]
         Se3xConservative,
+        #[cfg(feature = "models-se")]
         Se3xHighDenoise,
-
+        #[cfg(feature = "models-se")]
         Se4xNoDenoise,
+        #[cfg(feature = "models-se")]
         Se4xConservative,
+        #[cfg(feature = "models-se")]
         Se4xHighDenoise,
-
+        #[cfg(feature = "models-pro")]
         Pro2xNoDenoise,
+        #[cfg(feature = "models-pro")]
         Pro2XConservative,
+        #[cfg(feature = "models-pro")]
         Pro2XHighDenoise,
-
+        #[cfg(feature = "models-pro")]
         Pro3xNoDenoise,
+        #[cfg(feature = "models-pro")]
         Pro3XConservative,
+        #[cfg(feature = "models-pro")]
         Pro3XHighDenoise,
-
+        #[cfg(feature = "models-nose")]
         Nose2xNoDenoise
     }
 
@@ -458,25 +474,44 @@ mod build {
             self
         }
 
+        #[cfg(any(feature = "models-nose", feature = "models-pro", feature = "models-se"))]
         pub fn model(mut self, model: Model) -> Self {
             let model = match model {
+                #[cfg(feature = "models-nose")]
                 Model::Nose2xNoDenoise => MODEL_NOSE_2X_NO_DENOISE,
+                #[cfg(feature = "models-pro")]
                 Model::Pro2xNoDenoise => MODEL_PRO_2X_NO_DENOISE,
+                #[cfg(feature = "models-pro")]
                 Model::Pro2XConservative => MODEL_PRO_2X_CONSERVATIVE,
+                #[cfg(feature = "models-pro")]
                 Model::Pro2XHighDenoise => MODEL_PRO_2X_DENOISE_X3,
+                #[cfg(feature = "models-pro")]
                 Model::Pro3xNoDenoise => MODEL_PRO_3X_NO_DENOISE,
+                #[cfg(feature = "models-pro")]
                 Model::Pro3XConservative => MODEL_PRO_3X_CONSERVATIVE,
+                #[cfg(feature = "models-pro")]
                 Model::Pro3XHighDenoise => MODEL_PRO_3X_DENOISE_X3,
+                #[cfg(feature = "models-se")]
                 Model::Se2xNoDenoise => MODEL_SE_2X_NO_DENOISE,
+                #[cfg(feature = "models-se")]
                 Model::Se2xConservative => MODEL_SE_2X_CONSERVATIVE,
+                #[cfg(feature = "models-se")]
                 Model::Se2xLowDenoise => MODEL_SE_2X_DENOISE_X1,
+                #[cfg(feature = "models-se")]
                 Model::Se2xMediumDenoise => MODEL_SE_2X_DENOISE_X2,
+                #[cfg(feature = "models-se")]
                 Model::Se2xHighDenoise => MODEL_SE_2X_DENOISE_X3,
+                #[cfg(feature = "models-se")]
                 Model::Se3xNoDenoise => MODEL_SE_3X_NO_DENOISE,
+                #[cfg(feature = "models-se")]
                 Model::Se3xConservative => MODEL_SE_3X_CONSERVATIVE,
+                #[cfg(feature = "models-se")]
                 Model::Se3xHighDenoise => MODEL_SE_3X_DENOISE_X3,
+                #[cfg(feature = "models-se")]
                 Model::Se4xNoDenoise => MODEL_SE_4X_NO_DENOISE,
+                #[cfg(feature = "models-se")]
                 Model::Se4xConservative => MODEL_SE_4X_CONSERVATIVE,
+                #[cfg(feature = "models-se")]
                 Model::Se4xHighDenoise => MODEL_SE_4X_DENOISE_X3,
             };
             self.files = None;
@@ -524,6 +559,7 @@ mod build {
 
     }
 
+    #[cfg(feature = "models-nose")]
     const MODEL_NOSE_2X_NO_DENOISE: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-nose/up2x-no-denoise.param"),
         bin: include_bytes!("../models/models-nose/up2x-no-denoise.bin"),
@@ -532,6 +568,7 @@ mod build {
         allow_sync_gap: true,
     };
 
+    #[cfg(feature = "models-pro")]
     const MODEL_PRO_2X_NO_DENOISE: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-pro/up2x-no-denoise.param"),
         bin: include_bytes!("../models/models-pro/up2x-no-denoise.bin"),
@@ -540,6 +577,7 @@ mod build {
         allow_sync_gap: true,
     };
 
+    #[cfg(feature = "models-pro")]
     const MODEL_PRO_2X_CONSERVATIVE: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-pro/up2x-conservative.param"),
         bin: include_bytes!("../models/models-pro/up2x-conservative.bin"),
@@ -548,6 +586,7 @@ mod build {
         allow_sync_gap: true,
     };
 
+    #[cfg(feature = "models-pro")]
     const MODEL_PRO_2X_DENOISE_X3: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-pro/up2x-denoise3x.param"),
         bin: include_bytes!("../models/models-pro/up2x-denoise3x.bin"),
@@ -556,6 +595,7 @@ mod build {
         allow_sync_gap: true,
     };
 
+    #[cfg(feature = "models-pro")]
     const MODEL_PRO_3X_NO_DENOISE: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-pro/up3x-no-denoise.param"),
         bin: include_bytes!("../models/models-pro/up3x-no-denoise.bin"),
@@ -564,6 +604,7 @@ mod build {
         allow_sync_gap: true,
     };
 
+    #[cfg(feature = "models-pro")]
     const MODEL_PRO_3X_CONSERVATIVE: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-pro/up3x-conservative.param"),
         bin: include_bytes!("../models/models-pro/up3x-conservative.bin"),
@@ -572,6 +613,7 @@ mod build {
         allow_sync_gap: true,
     };
 
+    #[cfg(feature = "models-pro")]
     const MODEL_PRO_3X_DENOISE_X3: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-pro/up3x-denoise3x.param"),
         bin: include_bytes!("../models/models-pro/up3x-denoise3x.bin"),
@@ -580,6 +622,7 @@ mod build {
         allow_sync_gap: true,
     };
 
+    #[cfg(feature = "models-se")]
     const MODEL_SE_2X_NO_DENOISE: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-se/up2x-no-denoise.param"),
         bin: include_bytes!("../models/models-se/up2x-no-denoise.bin"),
@@ -588,6 +631,7 @@ mod build {
         allow_sync_gap: false,
     };
 
+    #[cfg(feature = "models-se")]
     const MODEL_SE_2X_CONSERVATIVE: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-se/up2x-conservative.param"),
         bin: include_bytes!("../models/models-se/up2x-conservative.bin"),
@@ -596,6 +640,7 @@ mod build {
         allow_sync_gap: false,
     };
 
+    #[cfg(feature = "models-se")]
     const MODEL_SE_2X_DENOISE_X1: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-se/up2x-denoise1x.param"),
         bin: include_bytes!("../models/models-se/up2x-denoise1x.bin"),
@@ -604,6 +649,7 @@ mod build {
         allow_sync_gap: false,
     };
 
+    #[cfg(feature = "models-se")]
     const MODEL_SE_2X_DENOISE_X2: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-se/up2x-denoise2x.param"),
         bin: include_bytes!("../models/models-se/up2x-denoise2x.bin"),
@@ -612,6 +658,7 @@ mod build {
         allow_sync_gap: false,
     };
 
+    #[cfg(feature = "models-se")]
     const MODEL_SE_2X_DENOISE_X3: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-se/up2x-denoise3x.param"),
         bin: include_bytes!("../models/models-se/up2x-denoise3x.bin"),
@@ -620,6 +667,7 @@ mod build {
         allow_sync_gap: false,
     };
 
+    #[cfg(feature = "models-se")]
     const MODEL_SE_3X_NO_DENOISE: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-se/up3x-no-denoise.param"),
         bin: include_bytes!("../models/models-se/up3x-no-denoise.bin"),
@@ -628,6 +676,7 @@ mod build {
         allow_sync_gap: false,
     };
 
+    #[cfg(feature = "models-se")]
     const MODEL_SE_3X_CONSERVATIVE: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-se/up3x-conservative.param"),
         bin: include_bytes!("../models/models-se/up3x-conservative.bin"),
@@ -636,6 +685,7 @@ mod build {
         allow_sync_gap: false,
     };
 
+    #[cfg(feature = "models-se")]
     const MODEL_SE_3X_DENOISE_X3: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-se/up3x-denoise3x.param"),
         bin: include_bytes!("../models/models-se/up3x-denoise3x.bin"),
@@ -644,6 +694,7 @@ mod build {
         allow_sync_gap: false,
     };
 
+    #[cfg(feature = "models-se")]
     const MODEL_SE_4X_NO_DENOISE: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-se/up4x-no-denoise.param"),
         bin: include_bytes!("../models/models-se/up4x-no-denoise.bin"),
@@ -652,6 +703,7 @@ mod build {
         allow_sync_gap: false,
     };
 
+    #[cfg(feature = "models-se")]
     const MODEL_SE_4X_CONSERVATIVE: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-se/up4x-conservative.param"),
         bin: include_bytes!("../models/models-se/up4x-conservative.bin"),
@@ -660,6 +712,7 @@ mod build {
         allow_sync_gap: false,
     };
 
+    #[cfg(feature = "models-se")]
     const MODEL_SE_4X_DENOISE_X3: ModelParameters = ModelParameters {
         param: include_bytes!("../models/models-se/up4x-denoise3x.param"),
         bin: include_bytes!("../models/models-se/up4x-denoise3x.bin"),

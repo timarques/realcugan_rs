@@ -81,6 +81,7 @@ fn threads() {
     }
 }
 
+#[cfg(feature = "models")]
 #[test]
 fn model() {
     let r = realcugan_rs::RealCugan::from_model(realcugan_rs::Model::Pro3xNoDenoise);
