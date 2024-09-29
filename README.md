@@ -4,6 +4,18 @@
 
 ## Installation
 
+Install dependencies
+```sh
+dnf install vulkan-headers vulkan-loader-devel ncnn-devel
+```
+```sh
+apt-get install libvulkan-dev
+build ncnn from source
+```
+```sh
+pacman -S vulkan-headers vulkan-icd-loader ncnn
+```
+
 Add this to your Cargo.toml:
 
 ```toml
