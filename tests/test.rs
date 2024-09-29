@@ -9,10 +9,11 @@ fn base() {
     assert!(Path::new(IMAGE).exists(), "Test image does not exist");
 
     // Create RealCugan instance
-    let result = realcugan_rs::RealCugan::from_files(
-        &format!("{}.param", MODEL),
-        &format!("{}.bin", MODEL)
-    );
+    let result = realcugan_rs::RealCugan::build()
+    .model_files(&format!("{}.param", MODEL),&format!("{}.bin", MODEL))
+    .scale(2)
+    .noise(-1)
+    .build();
 
     // Assert that RealCugan instance was created successfully
     assert!(result.is_ok(), "{}", result.err().unwrap().to_string());
@@ -50,10 +51,11 @@ fn base() {
 
 #[test]
 fn threads() {
-    let realcugan = realcugan_rs::RealCugan::from_files(
-        &format!("{}.param", MODEL),
-        &format!("{}.bin", MODEL)
-    ).unwrap();
+    let realcugan = realcugan_rs::RealCugan::build()
+    .model_files(&format!("{}.param", MODEL),&format!("{}.bin", MODEL))
+    .scale(2)
+    .noise(-1)
+    .unwrap();
 
     let mut threads = Vec::new();
 
@@ -77,4 +79,16 @@ fn threads() {
     for thread in threads {
         assert!(thread.join().is_ok());
     }
+}
+
+#[test]
+fn model() {
+    let r = realcugan_rs::RealCugan::from_model(realcugan_rs::Model::Pro3xNoDenoise);
+    let result = r.process_image_from_path(&std::path::PathBuf::from(IMAGE));
+    assert!(result.is_ok());
+    let upscaled_image = result.unwrap();
+    let path = "/tmp/upscaled_embeded_models.png";
+    upscaled_image.save_with_format(path, image::ImageFormat::Png).unwrap();
+    assert!(Path::new(&path).exists(), "Failed to save upscaled image");
+    //let _ = std::fs::remove_file(&path);
 }

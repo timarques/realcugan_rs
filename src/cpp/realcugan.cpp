@@ -16,6 +16,133 @@
 #include "realcugan_postproc_tta.comp.hex.h"
 #include "realcugan_4x_postproc_tta.comp.hex.h"
 
+// CUSTOM
+
+int RealCUGAN::load_files(FILE *param, FILE *bin)
+{
+    net.opt.use_vulkan_compute = vkdev ? true : false;
+    net.opt.use_fp16_packed = true;
+    net.opt.use_fp16_storage = vkdev ? true : false;
+    net.opt.use_fp16_arithmetic = false;
+    net.opt.use_int8_storage = true;
+
+    net.set_vulkan_device(vkdev);
+
+    net.load_param(param);
+    net.load_model(bin);
+
+    // initialize preprocess and postprocess pipeline
+    if (vkdev)
+    {
+        std::vector<ncnn::vk_specialization_type> specializations(1);
+#if _WIN32
+        specializations[0].i = 1;
+#else
+        specializations[0].i = 0;
+#endif
+
+        {
+            static std::vector<uint32_t> spirv;
+            static ncnn::Mutex lock;
+            {
+                ncnn::MutexLockGuard guard(lock);
+                if (spirv.empty())
+                {
+                    if (tta_mode)
+                        compile_spirv_module(realcugan_preproc_tta_comp_data, sizeof(realcugan_preproc_tta_comp_data), net.opt, spirv);
+                    else
+                        compile_spirv_module(realcugan_preproc_comp_data, sizeof(realcugan_preproc_comp_data), net.opt, spirv);
+                }
+            }
+
+            realcugan_preproc = new ncnn::Pipeline(vkdev);
+            realcugan_preproc->set_optimal_local_size_xyz(8, 8, 3);
+            realcugan_preproc->create(spirv.data(), spirv.size() * 4, specializations);
+        }
+
+        {
+            static std::vector<uint32_t> spirv;
+            static ncnn::Mutex lock;
+            {
+                ncnn::MutexLockGuard guard(lock);
+                if (spirv.empty())
+                {
+                    if (tta_mode)
+                        compile_spirv_module(realcugan_postproc_tta_comp_data, sizeof(realcugan_postproc_tta_comp_data), net.opt, spirv);
+                    else
+                        compile_spirv_module(realcugan_postproc_comp_data, sizeof(realcugan_postproc_comp_data), net.opt, spirv);
+                }
+            }
+
+            realcugan_postproc = new ncnn::Pipeline(vkdev);
+            realcugan_postproc->set_optimal_local_size_xyz(8, 8, 3);
+            realcugan_postproc->create(spirv.data(), spirv.size() * 4, specializations);
+        }
+
+        {
+            static std::vector<uint32_t> spirv;
+            static ncnn::Mutex lock;
+            {
+                ncnn::MutexLockGuard guard(lock);
+                if (spirv.empty())
+                {
+                    if (tta_mode)
+                        compile_spirv_module(realcugan_4x_postproc_tta_comp_data, sizeof(realcugan_4x_postproc_tta_comp_data), net.opt, spirv);
+                    else
+                        compile_spirv_module(realcugan_4x_postproc_comp_data, sizeof(realcugan_4x_postproc_comp_data), net.opt, spirv);
+                }
+            }
+
+            realcugan_4x_postproc = new ncnn::Pipeline(vkdev);
+            realcugan_4x_postproc->set_optimal_local_size_xyz(8, 8, 3);
+            realcugan_4x_postproc->create(spirv.data(), spirv.size() * 4, specializations);
+        }
+    }
+
+    // bicubic 2x/3x/4x for alpha channel
+    {
+        bicubic_2x = ncnn::create_layer("Interp");
+        bicubic_2x->vkdev = vkdev;
+
+        ncnn::ParamDict pd;
+        pd.set(0, 3);// bicubic
+        pd.set(1, 2.f);
+        pd.set(2, 2.f);
+        bicubic_2x->load_param(pd);
+
+        bicubic_2x->create_pipeline(net.opt);
+    }
+    {
+        bicubic_3x = ncnn::create_layer("Interp");
+        bicubic_3x->vkdev = vkdev;
+
+        ncnn::ParamDict pd;
+        pd.set(0, 3);// bicubic
+        pd.set(1, 3.f);
+        pd.set(2, 3.f);
+        bicubic_3x->load_param(pd);
+
+        bicubic_3x->create_pipeline(net.opt);
+    }
+    {
+        bicubic_4x = ncnn::create_layer("Interp");
+        bicubic_4x->vkdev = vkdev;
+
+        ncnn::ParamDict pd;
+        pd.set(0, 3);// bicubic
+        pd.set(1, 4.f);
+        pd.set(2, 4.f);
+        bicubic_4x->load_param(pd);
+
+        bicubic_4x->create_pipeline(net.opt);
+    }
+
+    return 0;
+}
+
+
+// END CUSTOM
+
 class FeatureCache
 {
 public:

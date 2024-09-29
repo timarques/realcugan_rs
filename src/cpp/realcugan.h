@@ -23,6 +23,8 @@ public:
     int load(const std::string& parampath, const std::string& modelpath);
 #endif
 
+    int load_files(FILE *param, FILE *bin);
+
     int process(const ncnn::Mat& inimage, ncnn::Mat& outimage) const;
 
     int process_cpu(const ncnn::Mat& inimage, ncnn::Mat& outimage) const;

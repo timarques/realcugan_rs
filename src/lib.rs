@@ -1,10 +1,12 @@
-use std::ffi::CString;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, AtomicU8, Ordering};
 
-use image::{DynamicImage, GrayAlphaImage, GrayImage, RgbaImage, RgbImage};
-use libc::{c_char, c_int, c_uchar, c_uint, c_void};
+use image::{DynamicImage, GrayAlphaImage, GrayImage, RgbImage, RgbaImage};
+use libc::{c_char, c_int, c_uchar, c_uint, c_void, FILE};
+
+pub use build::Model;
+pub use build::SyncGap;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -35,7 +37,17 @@ extern "C" {
 
     fn realcugan_destroy_gpu_instance();
 
-    fn realcugan_load(realcugan: *mut c_void, param_path: *const c_char, model_path: *const c_char);
+    fn realcugan_get_heap_budget(gpuid: c_int) -> c_uint;
+
+    fn realcugan_free_image(mat_ptr: *mut c_void);
+
+    fn realcugan_free(realcugan: *mut c_void);
+
+    fn realcugan_load_files(
+        realcugan: *mut c_void, 
+        param_path: *mut FILE,
+        model_path: *mut FILE
+    ) -> c_int;
 
     fn realcugan_process(
         realcugan: *mut c_void,
@@ -50,96 +62,55 @@ extern "C" {
         out_image: &Image,
         mat_ptr: *mut *mut c_void,
     ) -> c_int;
-
-    fn realcugan_get_heap_budget(gpuid: c_int) -> c_uint;
-
-    fn realcugan_free_image(mat_ptr: *mut c_void);
-
-    fn realcugan_free(realcugan: *mut c_void);
 }
 
 #[derive(Debug)]
 pub struct RealCugan {
     pointer: Arc<AtomicPtr<c_void>>,
-    scale: i32,
+    scale_factor: i32,
     use_cpu: bool,
-    clones: Arc<AtomicU8>
+    ref_count: Arc<AtomicU8>
 }
 
 unsafe impl Send for RealCugan {}
 
 impl RealCugan {
 
-    fn get_prepadding(scale: i32) -> Result<i32, String> {
+    fn calculate_prepadding(scale: i32) -> Result<i32, String> {
         match scale {
             2 => Ok(18),
             3 => Ok(14),
             4 => Ok(19),
-            _ => Err(format!("Invalid scale value: {}. Expected 2, 3, or 4.", scale)),
+            _ => Err(format!("invalid scale value: {}. expected 2, 3, or 4", scale))
         }
     }
 
-    fn get_sync_gap(sync_gap: i32, model_str: &str) -> i32 {
-        if model_str.contains("models-se") {
-            0
-        } else {
-            sync_gap
-        }
-    }
-
-    fn get_tile_size(tile_size: i32, scale: i32, gpu: i32) -> i32 {
+    fn calculate_tile_size(tile_size: i32, scale: i32, gpu: i32) -> i32 {
+        const DEFAULT_CPU_TILE_SIZE: i32 = 400;
+        const MIN_TILE_SIZE: i32 = 32;
+        
         if tile_size != 0 {
-            return tile_size
+            return tile_size;
         }
     
         if gpu == -1 {
-            return 400
+            return DEFAULT_CPU_TILE_SIZE;
         }
     
-        let heap_budget = unsafe { realcugan_get_heap_budget(gpu) };
-        match scale {
-            2 => {
-                if heap_budget > 1300 {
-                    400
-                } else if heap_budget > 800 {
-                    300
-                } else if heap_budget > 200 {
-                    100
-                } else {
-                    32
-                }
-            },
-            3 => {
-                if heap_budget > 330 {
-                    400
-                } else if heap_budget > 1900 {
-                    300
-                } else if heap_budget > 950 {
-                    200
-                } else if heap_budget > 320 {
-                    100
-                } else {
-                    32
-                }
-            },
-            4 => {
-                if heap_budget > 1690 {
-                    400
-                } else if heap_budget > 980 {
-                    300
-                } else if heap_budget > 530 {
-                    200
-                } else if heap_budget > 240 {
-                    100
-                } else {
-                    32
-                }
-            },
-            _ => {
-                32
-            }
-        }
+        let heap_budget = unsafe { realcugan_get_heap_budget(gpu) } as i32;
+        
+        let thresholds: Vec<(i32, i32)> = match scale {
+            2 => vec![(1300, 400), (800, 300), (200, 100)],
+            3 => vec![(3300, 400), (1900, 300), (950, 200), (320, 100)],
+            4 => vec![(1690, 400), (980, 300), (530, 200), (240, 100)],
+            _ => return MIN_TILE_SIZE,
+        };
     
+        thresholds
+            .iter()
+            .find(|(threshold, _)| heap_budget > *threshold)
+            .map(|&(_, size)| size)
+            .unwrap_or(MIN_TILE_SIZE)
     }
 
     fn validate_gpu(gpu: i32) -> Result<(), String> {
@@ -149,36 +120,27 @@ impl RealCugan {
         let count = unsafe { realcugan_get_gpu_count() };
         if gpu >= count {
             unsafe { realcugan_destroy_gpu_instance() }
-            return Err(format!("gpu {} not found", gpu))
+            return Err(format!("gpu {} not found. available gpus: {}", gpu, count))
         }
         Ok(())
     }
 
-    fn validate_model_paths(param: &str, bin: &str) -> Result<(), String> {
-        if !std::fs::exists(&param).unwrap_or(false) {
-            return Err(format!("model file {} does not exist", &param));
-        } else if !std::fs::exists(&bin).unwrap_or(false) {
-            return Err(format!("model file {} does not exist", &bin));
-        }
-        Ok(())
+    fn create_file_pointer(contents: &[u8]) -> *mut FILE {
+        let buffer = contents.as_ptr() as *mut c_void;
+        let size = contents.len();
+        
+        unsafe { libc::fmemopen(buffer, size, "rb\0".as_ptr() as *const c_char) }
     }
 
-    fn init_model(realcugan: *mut c_void, param: &str, bin: &str) -> Result<(), String> {
-        let bin_path_cstr = CString::new(bin)
-            .map_err(|_| format!("Failed to create CString for bin path"))?;
-        let param_path_cstr = CString::new(param)
-            .map_err(|_| format!("Failed to create CString for param path"))?;
-        unsafe { realcugan_load(realcugan, param_path_cstr.as_ptr(), bin_path_cstr.as_ptr()) }
-        Ok(())
-    }
+    fn load_model(realcugan: *mut c_void, param: &[u8], bin: &[u8]) -> Result<(), String> {
+        let file_bin_pointer = Self::create_file_pointer(bin);
+        let file_param_pointer = Self::create_file_pointer(param);
+        let result = unsafe { realcugan_load_files(realcugan, file_param_pointer, file_bin_pointer) };
 
-    fn create_realcugan(gpu: i32, threads: i32, tta: bool) -> *mut c_void {
-        unsafe {
-            realcugan_init(
-                gpu,
-                tta,
-                threads
-            )
+        if result != 0 {
+            Err(format!("failed to load model files. error code: {}", result))
+        } else {
+            Ok(())
         }
     }
 
@@ -186,41 +148,44 @@ impl RealCugan {
         gpu: i32,
         threads: i32,
         tta: bool,
-
-        scale: i32,
-        noise: i32,
         sync_gap: i32,
         tile_size: i32,
-        
-        model_param: &str,
-        model_bin: &str,
+        scale: i32,
+        noise: i32,
+        param: &[u8],
+        bin: &[u8],
     ) -> Result<Self, String> {
         Self::validate_gpu(gpu)?;
-        Self::validate_model_paths(model_param, model_bin)?;
-        let pointer = Self::create_realcugan(gpu, threads, tta);
-        Self::init_model(pointer, model_param, model_bin)?;
+        let prepading = Self::calculate_prepadding(scale)?;
+        let tile_size = Self::calculate_tile_size(tile_size, scale, gpu);
+        let pointer = unsafe { realcugan_init(gpu,tta, threads) };
+        Self::load_model(pointer, param, bin)?;
 
         unsafe {
             realcugan_set_parameters(
                 pointer,
                 scale,
                 noise,
-                Self::get_prepadding(scale)?,
-                Self::get_sync_gap(sync_gap, model_bin),
-                Self::get_tile_size(tile_size, scale, gpu)
+                prepading,
+                sync_gap,
+                tile_size
             );
         }
 
         Ok(Self {
             pointer: Arc::new(AtomicPtr::new(pointer)),
-            scale: scale,
+            scale_factor: scale,
             use_cpu: gpu == -1,
-            clones: Arc::new(AtomicU8::new(0)),
+            ref_count: Arc::new(AtomicU8::new(0)),
         })
     }
 
-    pub fn from_files(param: &str, bin: &str) -> Result<Self, String> {
-        RealCuganBuilder::new().files(param, bin).build()
+    pub fn from_model(model: Model) -> Self {
+        build::Builder::new().model(model).unwrap()
+    }
+
+    pub fn build<'a>() -> build::Builder<'a> {
+        build::Builder::new()
     }
 
     fn convert_image(width: u32, height: u32, channels: u8, bytes: Vec<u8>) -> Result<DynamicImage, String> {
@@ -230,7 +195,7 @@ impl RealCugan {
             2 => GrayAlphaImage::from_raw(width, height, bytes).map(DynamicImage::from),
             1 => GrayImage::from_raw(width, height, bytes).map(DynamicImage::from),
             _ => None
-        }.ok_or("invalid image".to_string())
+        }.ok_or(format!("invalid number of channels: {}. expected 1, 2, 3, or 4", channels))
     }
 
     fn prepare_image(&self, image: DynamicImage) -> (DynamicImage, u8) {
@@ -245,8 +210,8 @@ impl RealCugan {
     fn create_input_buffer(&self, image: &DynamicImage, channels: u8) -> Result<Image, String> {
         Ok(Image {
             data: image.as_bytes().as_ptr(),
-            w: i32::try_from(image.width()).map_err(|e| format!("Invalid width: {}", e))?,
-            h: i32::try_from(image.height()).map_err(|e| format!("Invalid height: {}", e))?,
+            w: i32::try_from(image.width()).map_err(|e| format!("invalid width: {}", e))?,
+            h: i32::try_from(image.height()).map_err(|e| format!("invalid height: {}", e))?,
             c: i32::from(channels),
         })
     }
@@ -254,8 +219,8 @@ impl RealCugan {
     fn create_output_buffer(&self, in_buffer: &Image, channels: u8) -> Image {
         Image {
             data: std::ptr::null_mut(),
-            w: in_buffer.w * self.scale,
-            h: in_buffer.h * self.scale,
+            w: in_buffer.w * self.scale_factor,
+            h: in_buffer.h * self.scale_factor,
             c: i32::from(channels),
         }
     }
@@ -285,7 +250,7 @@ impl RealCugan {
         }
 
         let length = usize::try_from(out_buffer.h * out_buffer.w * out_buffer.c)
-            .map_err(|e| format!("Invalid buffer length: {}", e))?;
+            .map_err(|e| format!("invalid buffer length: {}", e))?;
 
         let copied_bytes = unsafe { std::slice::from_raw_parts(out_buffer.data as *const u8, length).to_vec() };
         unsafe { realcugan_free_image(mat_ptr) }
@@ -300,21 +265,21 @@ impl RealCugan {
 
     pub fn process_image(&self, image: DynamicImage) -> Result<DynamicImage, String> {
         let (image, channels) = self.prepare_image(image);
-        let in_buffer = self.create_input_buffer(&image, channels)?;
-        let out_buffer = self.create_output_buffer(&in_buffer, channels);
+        let input_buffer = self.create_input_buffer(&image, channels)?;
+        let output_buffer = self.create_output_buffer(&input_buffer, channels);
 
-        self.process(in_buffer, out_buffer, channels)
+        self.process(input_buffer, output_buffer, channels)
     }
 
     pub fn process_raw_image(&self, image: &[u8]) -> Result<DynamicImage, String> {
         image::load_from_memory(image)
-            .map_err(|x| x.to_string())
+            .map_err(|x| format!("failed to load raw image: {}", x))
             .and_then(|i| self.process_image(i))
     }
 
     pub fn process_image_from_path<P: AsRef<Path>>(&self, path: &P) -> Result<DynamicImage, String> {
         let image = image::open(path)
-            .map_err(|x| x.to_string())?;
+            .map_err(|x| format!("failed to open image from path: {}", x))?;
         self.process_image(image)
     }
 
@@ -323,28 +288,20 @@ impl RealCugan {
 impl Clone for RealCugan {
 
     fn clone(&self) -> Self {
-        self.clones.fetch_add(1, Ordering::Relaxed);
+        self.ref_count.fetch_add(1, Ordering::Relaxed);
         RealCugan {
             pointer: self.pointer.clone(),
-            scale: self.scale,
+            scale_factor: self.scale_factor,
             use_cpu: self.use_cpu,
-            clones: self.clones.clone(),
+            ref_count: self.ref_count.clone(),
         }
-    }
-
-}
-
-impl Default for RealCugan {
-
-    fn default() -> Self {
-        RealCuganBuilder::new().build().unwrap()
     }
 
 }
 
 impl Drop for RealCugan {
     fn drop(&mut self) {
-        let clones = self.clones.fetch_sub(1, Ordering::Relaxed);
+        let clones = self.ref_count.fetch_sub(1, Ordering::Relaxed);
         if clones == 1 {
             let ptr = self.pointer.load(Ordering::Acquire);
             unsafe { realcugan_free(ptr) }
@@ -352,221 +309,363 @@ impl Drop for RealCugan {
     }
 }
 
+mod build {
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum Model {
-    Nose,
-    Pro,
-    Se,
-}
+    use super::RealCugan;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum Noise {
-    Default,        // -1
-    Off,            // 0
-    Low,            // 1
-    Medium,         // 2
-    High,           // 3
-}
+    #[derive(Debug, Copy, Clone, PartialEq)]
+    pub enum Model {
+        Se2xNoDenoise,
+        Se2xConservative,
+        Se2xLowDenoise,
+        Se2xMediumDenoise,
+        Se2xHighDenoise,
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum Scale {
-    Double,   // 2x
-    Triple,   // 3x
-    Quadruple // 4x
-}
+        Se3xNoDenoise,
+        Se3xConservative,
+        Se3xHighDenoise,
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum SyncGap {
-    Disabled,      // 0
-    Loose,         // 1
-    Moderate,      // 2
-    Strict,        // 3 (default)
-}
+        Se4xNoDenoise,
+        Se4xConservative,
+        Se4xHighDenoise,
 
-#[derive(Debug, Clone)]
-pub struct RealCuganBuilder {
-    gpu: i32,
-    noise: i32,
-    scale: i32,
-    tile_size: i32,
-    sync_gap: i32,
-    threads: i32,
-    tta: bool,
-    model: String,
-    directory: PathBuf,
-    files: Option<(String, String)>,
-}
+        Pro2xNoDenoise,
+        Pro2XConservative,
+        Pro2XHighDenoise,
 
-impl Default for RealCuganBuilder {
-    fn default() -> Self {
-        Self {
-            gpu: 0,
-            noise: -1,
-            scale: 2,
-            model: format!("models-se"),
-            tile_size: 0,
-            sync_gap: 3,
-            tta: false,
-            threads: 0,
-            directory: std::env::current_dir().unwrap_or_default(),
-            files: None,
+        Pro3xNoDenoise,
+        Pro3XConservative,
+        Pro3XHighDenoise,
+
+        Nose2xNoDenoise
+    }
+
+    #[derive(Debug, Copy, Clone, PartialEq)]
+    pub enum SyncGap {
+        Disabled,      // 0
+        Loose,         // 1
+        Moderate,      // 2
+        Strict,        // 3 (default)
+    }
+
+    #[derive(Debug, Clone)]
+    struct GeneralParameters {
+        gpu: i32,
+        tile_size: i32,
+        sync_gap: i32,
+        threads: i32,
+        tta: bool,
+    }
+
+    #[derive(Debug, Clone)]
+    struct ModelParameters<'a> {
+        param: &'a [u8],
+        bin: &'a [u8],
+        scale: i32,
+        noise: i32,
+        allow_sync_gap: bool,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct Builder<'a> {
+        files: Option<(&'a str, &'a str)>,
+        parameters: GeneralParameters,
+        model_parameters: ModelParameters<'a>
+    }
+
+    impl <'a>Default for Builder<'a> {
+        fn default() -> Self {
+            Self {
+                files: None,
+                parameters: GeneralParameters{
+                    gpu: 0,
+                    tile_size: 0,
+                    sync_gap: 3,
+                    tta: false,
+                    threads: 1,
+                },
+                model_parameters: ModelParameters {
+                    param: &[],
+                    bin: &[],
+                    scale: 2,
+                    noise: -1,
+                    allow_sync_gap: true,
+                }
+            }
         }
     }
-}
 
-impl RealCuganBuilder {
+    impl <'a>Builder<'a> {
 
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn files(mut self, param: &str, bin: &str) -> Self {
-        self.noise = if param.contains("no-denoise") {
-            0
-        } else if param.contains("conservative") {
-            1
-        } else if param.contains("denoise2x") {
-            2
-        } else if param.contains("denoise3x") {
-            3
-        } else {
-            self.noise
-        };
-
-        self.scale = if param.contains("up2x") {
-            2
-        } else if param.contains("up3x") {
-            3
-        } else if param.contains("up4x") {
-            4
-        } else {
-            self.scale
-        };
-
-        self.files = Some((param.to_string(), bin.to_string()));
-        self
-    }
-
-    pub fn gpu(mut self, gpu: u32) -> Self {
-        self.gpu = gpu as i32;
-        self
-    }
-
-    pub fn noise(mut self, noise: Noise) -> Self {
-        self.noise = match noise {
-            Noise::Default => -1,
-            Noise::Off => 0,
-            Noise::Low => 1,
-            Noise::Medium => 2,
-            Noise::High => 3
-        };
-        self
-    }
-
-    pub fn scale(mut self, scale: Scale) -> Self {
-        self.scale = match scale {
-            Scale::Double => 2,
-            Scale::Triple => 3,
-            Scale::Quadruple => 4
-        };
-        self
-    }
-
-    pub fn model(mut self, model: Model) -> Self {
-        self.model = match model {
-            Model::Se => "models-se",
-            Model::Nose => "models-nose",
-            Model::Pro => "models-pro",
-        }.to_string();
-        self
-    }
-
-    pub fn tile_size(mut self, tile_size: u32) -> Self {
-        self.tile_size = tile_size as i32;
-        self
-    }
-
-    pub fn sync_gap(mut self, sync_gap: SyncGap) -> Self {
-        self.sync_gap = match sync_gap {
-            SyncGap::Disabled => 0,
-            SyncGap::Loose => 1,
-            SyncGap::Moderate => 2,
-            SyncGap::Strict => 3,
-        };
-        self
-    }
-
-    pub fn tta(mut self, tta: bool) -> Self {
-        self.tta = tta;
-        self
-    }
-
-    pub fn threads(mut self, threads: i32) -> Self {
-        self.threads = threads;
-        self
-    }
-
-    pub fn directory<P: AsRef<Path>>(mut self, directory: P) -> Self {
-        self.directory = directory.as_ref().to_path_buf();
-        self
-    }
-
-    pub fn cpu(mut self) -> Self {
-        self.gpu = -1;
-        self
-    }
-
-    fn get_model_paths(&self) -> Result<(String, String), String> {
-        if let Some(files) = self.files.clone() {
-            let param = std::fs::canonicalize(&files.0)
-                .map_err(|_| format!("Failed to canonicalize file path {}", &files.0))
-                .map(|p| p.to_string_lossy().to_string())?;
-            let bin = std::fs::canonicalize(&files.1)
-                .map_err(|_| format!("Failed to canonicalize file path {}", &files.1))
-                .map(|p| p.to_string_lossy().to_string())?;
-            return Ok((param, bin))
+        pub fn new() -> Self {
+            Self::default()
         }
 
-        let directory = self.directory.display();
-        if !std::fs::exists(&self.directory).unwrap_or(false) {
-            return Err(format!("models directory {} does not exist", directory));
+        pub fn gpu(mut self, gpu: u32) -> Self {
+            self.parameters.gpu = gpu as i32;
+            self
         }
 
-        let (param, bin) = match self.noise {
-            -1 => (
-                format!("up{}x-conservative.param", self.scale),
-                format!("up{}x-conservative.bin", self.scale),
-            ),
-            0 => (
-                format!("up{}x-no-denoise.param", self.scale),
-                format!("up{}x-no-denoise.bin", self.scale),
-            ),
-            _ => (
-                format!("up{}x-denoise{}x.param", self.scale, self.noise),
-                format!("up{}x-denoise{}x.bin", self.scale, self.noise),
+        pub fn cpu(mut self) -> Self {
+            self.parameters.gpu = -1;
+            self
+        }
+
+        pub fn tta(mut self) -> Self {
+            self.parameters.tta = true;
+            self
+        }
+
+        pub fn tile_size(mut self, tile_size: u32) -> Self {
+            self.parameters.tile_size = tile_size as i32;
+            self
+        }
+
+        pub fn sync_gap(mut self, sync_gap: SyncGap) -> Self {
+            self.parameters.sync_gap = match sync_gap {
+                SyncGap::Disabled => 0,
+                SyncGap::Loose => 1,
+                SyncGap::Moderate => 2,
+                SyncGap::Strict => 3,
+            };
+            self
+        }
+
+        pub fn threads(mut self, threads: i32) -> Self {
+            self.parameters.threads = threads;
+            self
+        }
+
+        pub fn scale(mut self, scale: i32) -> Self {
+            self.model_parameters.scale = scale;
+            self
+        }
+
+        pub fn noise(mut self, noise: i32) -> Self {
+            self.model_parameters.noise = noise;
+            self
+        }
+
+        pub fn model_files(mut self, param_file: &'a str, bin_file: &'a str) -> Self {
+            self.files = Some((param_file, bin_file));
+            self
+        }
+
+        pub fn model_bytes(mut self, param: &'a [u8], bin: &'a [u8]) -> Self {
+            self.model_parameters.param = param;
+            self.model_parameters.bin = bin;
+            self.files = None;
+            self
+        }
+
+        pub fn model(mut self, model: Model) -> Self {
+            let model = match model {
+                Model::Nose2xNoDenoise => MODEL_NOSE_2X_NO_DENOISE,
+                Model::Pro2xNoDenoise => MODEL_PRO_2X_NO_DENOISE,
+                Model::Pro2XConservative => MODEL_PRO_2X_CONSERVATIVE,
+                Model::Pro2XHighDenoise => MODEL_PRO_2X_DENOISE_X3,
+                Model::Pro3xNoDenoise => MODEL_PRO_3X_NO_DENOISE,
+                Model::Pro3XConservative => MODEL_PRO_3X_CONSERVATIVE,
+                Model::Pro3XHighDenoise => MODEL_PRO_3X_DENOISE_X3,
+                Model::Se2xNoDenoise => MODEL_SE_2X_NO_DENOISE,
+                Model::Se2xConservative => MODEL_SE_2X_CONSERVATIVE,
+                Model::Se2xLowDenoise => MODEL_SE_2X_DENOISE_X1,
+                Model::Se2xMediumDenoise => MODEL_SE_2X_DENOISE_X2,
+                Model::Se2xHighDenoise => MODEL_SE_2X_DENOISE_X3,
+                Model::Se3xNoDenoise => MODEL_SE_3X_NO_DENOISE,
+                Model::Se3xConservative => MODEL_SE_3X_CONSERVATIVE,
+                Model::Se3xHighDenoise => MODEL_SE_3X_DENOISE_X3,
+                Model::Se4xNoDenoise => MODEL_SE_4X_NO_DENOISE,
+                Model::Se4xConservative => MODEL_SE_4X_CONSERVATIVE,
+                Model::Se4xHighDenoise => MODEL_SE_4X_DENOISE_X3,
+            };
+            self.files = None;
+            self.model_parameters = model;
+            self
+        }
+
+        fn get_bytes(&self) -> Result<(Vec<u8>, Vec<u8>), String> {
+            if let Some((param_file, bin_file)) = &self.files {
+                let param = std::fs::read(param_file)
+                    .map_err(|e| format!("failed to read param file: {}", e))?;
+                let bin = std::fs::read(bin_file)
+                    .map_err(|e| format!("failed to read bin file: {}", e))?;
+                Ok((param, bin))
+            } else {
+                Ok((self.model_parameters.param.to_vec(), self.model_parameters.bin.to_vec()))
+            }
+        }
+
+        pub fn build(&self) -> Result<RealCugan, String> {
+
+            let (param, bin) = self.get_bytes()?;
+
+            let sync_gap = if self.model_parameters.allow_sync_gap { 
+                self.parameters.sync_gap
+            } else {
+                0
+            };
+            RealCugan::new(
+                self.parameters.gpu,
+                self.parameters.threads,
+                self.parameters.tta,
+                sync_gap,
+                self.parameters.tile_size,
+                self.model_parameters.scale,
+                self.model_parameters.noise,
+                &param,
+                &bin
             )
-        };
+        }
 
-        Ok((
-            self.directory.join(&self.model).join(param).to_str().unwrap().to_string(),
-            self.directory.join(&self.model).join(bin).to_str().unwrap().to_string(),
-        ))
+        pub fn unwrap(&self) -> RealCugan {
+            self.build().unwrap()
+        }
+
     }
 
-    pub fn build(&self) -> Result<RealCugan, String> {
-        let (param, bin) = self.get_model_paths()?;
-        RealCugan::new(
-            self.gpu,
-            self.threads,
-            self.tta,
-            self.scale,
-            self.noise,
-            self.sync_gap,
-            self.tile_size,
-            &param,
-            &bin
-        )
-    }
+    const MODEL_NOSE_2X_NO_DENOISE: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-nose/up2x-no-denoise.param"),
+        bin: include_bytes!("../models/models-nose/up2x-no-denoise.bin"),
+        scale: 2,
+        noise: 0,
+        allow_sync_gap: true,
+    };
+
+    const MODEL_PRO_2X_NO_DENOISE: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-pro/up2x-no-denoise.param"),
+        bin: include_bytes!("../models/models-pro/up2x-no-denoise.bin"),
+        scale: 2,
+        noise: 0,
+        allow_sync_gap: true,
+    };
+
+    const MODEL_PRO_2X_CONSERVATIVE: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-pro/up2x-conservative.param"),
+        bin: include_bytes!("../models/models-pro/up2x-conservative.bin"),
+        scale: 2,
+        noise: -1,
+        allow_sync_gap: true,
+    };
+
+    const MODEL_PRO_2X_DENOISE_X3: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-pro/up2x-denoise3x.param"),
+        bin: include_bytes!("../models/models-pro/up2x-denoise3x.bin"),
+        scale: 2,
+        noise: 3,
+        allow_sync_gap: true,
+    };
+
+    const MODEL_PRO_3X_NO_DENOISE: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-pro/up3x-no-denoise.param"),
+        bin: include_bytes!("../models/models-pro/up3x-no-denoise.bin"),
+        scale: 3,
+        noise: 0,
+        allow_sync_gap: true,
+    };
+
+    const MODEL_PRO_3X_CONSERVATIVE: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-pro/up3x-conservative.param"),
+        bin: include_bytes!("../models/models-pro/up3x-conservative.bin"),
+        scale: 3,
+        noise: -1,
+        allow_sync_gap: true,
+    };
+
+    const MODEL_PRO_3X_DENOISE_X3: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-pro/up3x-denoise3x.param"),
+        bin: include_bytes!("../models/models-pro/up3x-denoise3x.bin"),
+        scale: 3,
+        noise: 3,
+        allow_sync_gap: true,
+    };
+
+    const MODEL_SE_2X_NO_DENOISE: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-se/up2x-no-denoise.param"),
+        bin: include_bytes!("../models/models-se/up2x-no-denoise.bin"),
+        scale: 2,
+        noise: 0,
+        allow_sync_gap: false,
+    };
+
+    const MODEL_SE_2X_CONSERVATIVE: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-se/up2x-conservative.param"),
+        bin: include_bytes!("../models/models-se/up2x-conservative.bin"),
+        scale: 2,
+        noise: -1,
+        allow_sync_gap: false,
+    };
+
+    const MODEL_SE_2X_DENOISE_X1: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-se/up2x-denoise1x.param"),
+        bin: include_bytes!("../models/models-se/up2x-denoise1x.bin"),
+        scale: 2,
+        noise: 1,
+        allow_sync_gap: false,
+    };
+
+    const MODEL_SE_2X_DENOISE_X2: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-se/up2x-denoise2x.param"),
+        bin: include_bytes!("../models/models-se/up2x-denoise2x.bin"),
+        scale: 2,
+        noise: 2,
+        allow_sync_gap: false,
+    };
+
+    const MODEL_SE_2X_DENOISE_X3: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-se/up2x-denoise3x.param"),
+        bin: include_bytes!("../models/models-se/up2x-denoise3x.bin"),
+        scale: 2,
+        noise: 3,
+        allow_sync_gap: false,
+    };
+
+    const MODEL_SE_3X_NO_DENOISE: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-se/up3x-no-denoise.param"),
+        bin: include_bytes!("../models/models-se/up3x-no-denoise.bin"),
+        scale: 3,
+        noise: 0,
+        allow_sync_gap: false,
+    };
+
+    const MODEL_SE_3X_CONSERVATIVE: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-se/up3x-conservative.param"),
+        bin: include_bytes!("../models/models-se/up3x-conservative.bin"),
+        scale: 3,
+        noise: -1,
+        allow_sync_gap: false,
+    };
+
+    const MODEL_SE_3X_DENOISE_X3: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-se/up3x-denoise3x.param"),
+        bin: include_bytes!("../models/models-se/up3x-denoise3x.bin"),
+        scale: 3,
+        noise: 3,
+        allow_sync_gap: false,
+    };
+
+    const MODEL_SE_4X_NO_DENOISE: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-se/up4x-no-denoise.param"),
+        bin: include_bytes!("../models/models-se/up4x-no-denoise.bin"),
+        scale: 4,
+        noise: 0,
+        allow_sync_gap: false,
+    };
+
+    const MODEL_SE_4X_CONSERVATIVE: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-se/up4x-conservative.param"),
+        bin: include_bytes!("../models/models-se/up4x-conservative.bin"),
+        scale: 4,
+        noise: -1,
+        allow_sync_gap: false,
+    };
+
+    const MODEL_SE_4X_DENOISE_X3: ModelParameters = ModelParameters {
+        param: include_bytes!("../models/models-se/up4x-denoise3x.param"),
+        bin: include_bytes!("../models/models-se/up4x-denoise3x.bin"),
+        scale: 4,
+        noise: 3,
+        allow_sync_gap: false,
+    };
 
 }
