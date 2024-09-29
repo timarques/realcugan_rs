@@ -1,7 +1,7 @@
 use std::path::Path;
 
 const IMAGE: &str = "./tests/image.jpg";
-const MODEL: &str = "./tests/up2x-conservative";
+const MODEL: &str = "./models/models-se/up2x-conservative";
 
 #[test]
 fn base() {
