@@ -1,4 +1,5 @@
 use crate::builder::Builder;
+#[cfg(any(feature = "models-nose", feature = "models-pro", feature = "models-se"))]
 use crate::builder::Model;
 
 use std::io::Cursor;
@@ -136,6 +137,9 @@ impl RealCugan {
     fn load_model(realcugan: *mut c_void, param: &[u8], bin: &[u8]) -> Result<(), String> {
         let file_bin_pointer = Self::create_file_pointer(bin);
         let file_param_pointer = Self::create_file_pointer(param);
+        if file_bin_pointer.is_null() || file_param_pointer.is_null() {
+            return Err(format!("failed to create file pointers"));
+        }
         let result = unsafe { realcugan_load_files(realcugan, file_param_pointer, file_bin_pointer) };
 
         if result != 0 {
@@ -160,6 +164,9 @@ impl RealCugan {
         let prepading = Self::calculate_prepadding(scale)?;
         let tile_size = Self::calculate_tile_size(tile_size, scale, gpu);
         let pointer = unsafe { realcugan_init(gpu,tta, threads) };
+        if pointer.is_null() {
+            return Err(format!("invalid pointer"));
+        }
         Self::load_model(pointer, param, bin)?;
 
         unsafe {
@@ -177,7 +184,7 @@ impl RealCugan {
             pointer: Arc::new(AtomicPtr::new(pointer)),
             scale_factor: scale,
             use_cpu: gpu == -1,
-            ref_count: Arc::new(AtomicU8::new(0)),
+            ref_count: Arc::new(AtomicU8::new(1)),
         })
     }
 
@@ -230,15 +237,18 @@ impl RealCugan {
     fn process(&self, in_buffer: Image, out_buffer: Image, channels: u8) -> Result<DynamicImage, String> {
         let mut mat_ptr = std::ptr::null_mut();
         let ptr = self.pointer.load(Ordering::Acquire);
+        if ptr.is_null() {
+            return Err(format!("invalid pointer"))
+        }
 
-        if self.use_cpu {
+        let result = if self.use_cpu {
             unsafe {
                 realcugan_process_cpu(
                     ptr,
                     &in_buffer,
                     &out_buffer,
                     &mut mat_ptr,
-                );
+                )
             }
         } else {
             unsafe {
@@ -247,8 +257,13 @@ impl RealCugan {
                     &in_buffer,
                     &out_buffer,
                     &mut mat_ptr,
-                );
+                )
             }
+        };
+
+        if result != 0 {
+            unsafe { realcugan_free_image(mat_ptr) };
+            return Err(format!("failed to process image"))
         }
 
         let length = usize::try_from(out_buffer.h * out_buffer.w * out_buffer.c)
@@ -269,7 +284,6 @@ impl RealCugan {
         let (image, channels) = self.prepare_image(image);
         let input_buffer = self.create_input_buffer(&image, channels)?;
         let output_buffer = self.create_output_buffer(&input_buffer, channels);
-
         self.process(input_buffer, output_buffer, channels)
     }
 
@@ -310,10 +324,12 @@ impl Clone for RealCugan {
 
 impl Drop for RealCugan {
     fn drop(&mut self) {
-        let clones = self.ref_count.fetch_sub(1, Ordering::Relaxed);
-        if clones == 1 {
+        let ref_count = self.ref_count.fetch_sub(1, Ordering::Relaxed);
+        if ref_count == 1 {
             let ptr = self.pointer.load(Ordering::Acquire);
-            unsafe { realcugan_free(ptr) }
+            if !ptr.is_null() {
+                unsafe { realcugan_free(ptr) }
+            }
         }
     }
 }
