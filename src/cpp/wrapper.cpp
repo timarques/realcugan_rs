@@ -39,20 +39,6 @@ extern "C" void realcugan_destroy_gpu_instance() {
   ncnn::destroy_gpu_instance();
 }
 
-extern "C" int realcugan_load(
-  RealCUGAN *realcugan,
-  const char *param_path,
-  const char *model_path
-) {
-  #if _WIN32
-    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-    return realcugan->load(converter.from_bytes(param_path),
-                          converter.from_bytes(model_path));
-  #else
-    return realcugan->load(param_path, model_path);
-  #endif
-}
-
 extern "C" int realcugan_load_files(
   RealCUGAN *realcugan,
   FILE* param,
@@ -119,5 +105,4 @@ extern "C" void realcugan_free_image(ncnn::Mat *mat_ptr) {
 
 extern "C" void realcugan_free(RealCUGAN *realcugan) {
   delete realcugan;
-  ncnn::destroy_gpu_instance();
 }

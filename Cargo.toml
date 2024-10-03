@@ -22,6 +22,7 @@ panic = "abort"
 incremental = false
 
 [features]
+system-ncnn = []
 models = ["models-se", "models-pro", "models-nose"]
 models-se = []
 models-pro = []
