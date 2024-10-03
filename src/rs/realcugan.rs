@@ -6,9 +6,12 @@ use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, AtomicU8, Ordering};
+use std::sync::LazyLock;
 
 use image::{DynamicImage, GrayAlphaImage, GrayImage, RgbImage, RgbaImage};
 use libc::{c_char, c_int, c_uchar, c_uint, c_void, FILE};
+
+static INSTANCES: LazyLock<AtomicU8> = LazyLock::new(|| AtomicU8::new(0));
 
 #[repr(C)]
 #[derive(Debug)]
@@ -70,8 +73,7 @@ extern "C" {
 pub struct RealCugan {
     pointer: Arc<AtomicPtr<c_void>>,
     scale_factor: i32,
-    use_cpu: bool,
-    ref_count: Arc<AtomicU8>
+    use_cpu: bool
 }
 
 unsafe impl Send for RealCugan {}
@@ -121,7 +123,9 @@ impl RealCugan {
         }
         let count = unsafe { realcugan_get_gpu_count() };
         if gpu >= count {
-            unsafe { realcugan_destroy_gpu_instance() }
+            if INSTANCES.load(Ordering::Relaxed) == 0 {
+                unsafe { realcugan_destroy_gpu_instance() }
+            }
             return Err(format!("gpu {} not found. available gpus: {}", gpu, count))
         }
         Ok(())
@@ -164,9 +168,6 @@ impl RealCugan {
         let prepading = Self::calculate_prepadding(scale)?;
         let tile_size = Self::calculate_tile_size(tile_size, scale, gpu);
         let pointer = unsafe { realcugan_init(gpu,tta, threads) };
-        if pointer.is_null() {
-            return Err(format!("invalid pointer"));
-        }
         Self::load_model(pointer, param, bin)?;
 
         unsafe {
@@ -180,11 +181,12 @@ impl RealCugan {
             );
         }
 
+        INSTANCES.fetch_add(1, Ordering::Relaxed);
+
         Ok(Self {
             pointer: Arc::new(AtomicPtr::new(pointer)),
             scale_factor: scale,
             use_cpu: gpu == -1,
-            ref_count: Arc::new(AtomicU8::new(1)),
         })
     }
 
@@ -311,12 +313,10 @@ impl RealCugan {
 impl Clone for RealCugan {
 
     fn clone(&self) -> Self {
-        self.ref_count.fetch_add(1, Ordering::Relaxed);
         RealCugan {
             pointer: self.pointer.clone(),
             scale_factor: self.scale_factor,
             use_cpu: self.use_cpu,
-            ref_count: self.ref_count.clone(),
         }
     }
 
@@ -324,11 +324,14 @@ impl Clone for RealCugan {
 
 impl Drop for RealCugan {
     fn drop(&mut self) {
-        let ref_count = self.ref_count.fetch_sub(1, Ordering::Relaxed);
-        if ref_count == 1 {
+        if Arc::strong_count(&self.pointer) == 1 {
             let ptr = self.pointer.load(Ordering::Acquire);
             if !ptr.is_null() {
                 unsafe { realcugan_free(ptr) }
+            }
+
+            if INSTANCES.fetch_sub(1, Ordering::AcqRel) == 1 {
+                unsafe { realcugan_destroy_gpu_instance() }
             }
         }
     }
