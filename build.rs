@@ -1,5 +1,6 @@
-use std::process::Command;
 use cmake::Config;
+use std::process::Command;
+use std::io::BufRead;
 
 const NCNN_REPO_URL: &str = "https://github.com/Tencent/ncnn";
 const NCNN_COMMIT_HASH: &str = "066614351391d309c96ae1e00c6fb1bd873b4949";
@@ -43,6 +44,34 @@ fn configure_ncnn_build(target_dir: &str) -> Config {
     config
 }
 
+fn disable_logs(target_dir: &str) -> Result<(), std::io::Error> {
+    let platform_file = format!("{}/src/platform.h.in", target_dir);
+    let file = std::fs::File::open(&platform_file)?;
+    let reader = std::io::BufReader::new(file);
+
+    let mut text = String::new();
+    let mut skip_lines = false;
+
+    for line_result in reader.lines() {
+        let line = line_result?;
+
+        if line.contains("#define NCNN_LOGE(...) do {") {
+            skip_lines = true;
+            text += &format!("#define NCNN_LOGE(...)\n");
+            continue
+        } else if (line.contains("#endif") || line.contains("#else")) && skip_lines {
+            skip_lines = false;
+        } else if skip_lines {
+            continue
+        }
+        text += &format!("{}\n", line);
+    }
+
+    std::fs::write(platform_file, text)?;
+
+    Ok(())
+}
+
 fn build_ncnn(output: &str) -> Result<(), String> {
     let target_dir = format!("{}/ncnn", output);
 
@@ -52,6 +81,7 @@ fn build_ncnn(output: &str) -> Result<(), String> {
     println!("cargo:rustc-link-lib={}", "vulkan");
 
     clone_ncnn(&target_dir)?;
+    disable_logs(&target_dir).map_err(|r| r.to_string())?;
     configure_ncnn_build(&target_dir)
         .cflag("-O3")
         .cxxflag("-O3")
