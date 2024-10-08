@@ -6,12 +6,11 @@ use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicPtr, AtomicU8, Ordering};
-use std::sync::LazyLock;
 
 use image::{DynamicImage, GrayAlphaImage, GrayImage, RgbImage, RgbaImage};
 use libc::{c_char, c_int, c_uchar, c_uint, c_void, FILE};
 
-static INSTANCES: LazyLock<AtomicU8> = LazyLock::new(|| AtomicU8::new(0));
+static INSTANCES: AtomicU8 = AtomicU8::new(0);
 
 #[repr(C)]
 #[derive(Debug)]
