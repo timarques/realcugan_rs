@@ -1,17 +1,4 @@
-#if _WIN32
-#include <codecvt>
-#include <locale>
-#include <string>
-#endif
-
 #include "realcugan.h"
-
-#include <algorithm>
-#include <vector>
-#include <map>
-
-// ncnn
-#include "cpu.h"
 
 #include "realcugan_preproc.comp.hex.h"
 #include "realcugan_postproc.comp.hex.h"
@@ -20,15 +7,70 @@
 #include "realcugan_postproc_tta.comp.hex.h"
 #include "realcugan_4x_postproc_tta.comp.hex.h"
 
-typedef struct Image {
-  unsigned char *data;
-  int w;
-  int h;
-  int c;
-} Image;
+int realcugan_get_default_tile_size(int gpuid, int scale) {
+	int tilesize = 0;
+	uint32_t heap_budget = ncnn::get_gpu_device(gpuid)->get_heap_budget();
+	if (scale == 2) {
+		if (heap_budget > 1300)
+			tilesize = 400;
+		else if (heap_budget > 800)
+			tilesize = 300;
+		else if (heap_budget > 400)
+			tilesize = 200;
+		else if (heap_budget > 200)
+			tilesize = 100;
+		else
+			tilesize = 32;
+	}
+	if (scale == 3) {
+		if (heap_budget > 3300)
+			tilesize = 400;
+		else if (heap_budget > 1900)
+			tilesize = 300;
+		else if (heap_budget > 950)
+			tilesize = 200;
+		else if (heap_budget > 320)
+			tilesize = 100;
+		else
+			tilesize = 32;
+	}
+	if (scale == 4) {
+		if (heap_budget > 1690)
+			tilesize = 400;
+		else if (heap_budget > 980)
+			tilesize = 300;
+		else if (heap_budget > 530)
+			tilesize = 200;
+		else if (heap_budget > 240)
+			tilesize = 100;
+		else
+			tilesize = 32;
+	}
+	return tilesize;
+}
 
-extern "C" RealCUGAN *realcugan_init(int gpuid, bool tta_mode, int num_threads) {
-  return new RealCUGAN(gpuid, tta_mode, num_threads);
+extern "C" RealCUGAN *realcugan_init(
+	int gpuid, 
+	bool tta_mode, 
+	int num_threads,
+	int scale,
+	int noise,
+	int syncgap,
+	int tilesize
+) {
+	RealCUGAN* realcugan = new RealCUGAN(gpuid, tta_mode, num_threads);
+	realcugan->noise = noise;
+	realcugan->scale = scale;
+	realcugan->syncgap = syncgap;
+	realcugan->tilesize = tilesize == 0 ? realcugan_get_default_tile_size(gpuid, scale) : tilesize;
+	if (scale == 2) {
+		realcugan->prepadding = 18;
+	} else if (scale == 3) {
+		realcugan->prepadding = 14;
+	} else if (scale == 4) {
+		realcugan->prepadding = 19;
+	};
+	return realcugan;
 }
 
 extern "C" int realcugan_get_gpu_count() {
@@ -47,62 +89,32 @@ extern "C" int realcugan_load_files(
   return realcugan->load_files(param, bin);
 }
 
-extern "C" void realcugan_set_parameters(
-  RealCUGAN *realcugan,
-  int scale,
-  int noise,
-  int prepadding,
-  int syncgap,
-  int tilesize
-) {
-  realcugan->noise = noise;
-  realcugan->scale = scale;
-  realcugan->prepadding = prepadding;
-  realcugan->syncgap = syncgap;
-  realcugan->tilesize = tilesize;
-}
-
 extern "C" int realcugan_process(
-  RealCUGAN *realcugan,
-  const Image *in_image,
-  Image *out_image,
-  void **mat_ptr
+    RealCUGAN *realcugan,
+    unsigned char *input_data,
+    unsigned char *output_data,
+    int width,
+    int height,
+    int channels
 ) {
-  int c = in_image->c;
-  ncnn::Mat in_image_mat = ncnn::Mat(in_image->w, in_image->h, (void *)in_image->data, (size_t)c, c);
-  auto *out_image_mat = new ncnn::Mat(out_image->w, out_image->h, (size_t)c, c);
-
-  int result = realcugan->process(in_image_mat, *out_image_mat);
-  out_image->data = static_cast<unsigned char *>(out_image_mat->data);
-  *mat_ptr = out_image_mat;
-  return result;
+    ncnn::Mat in_image_mat = ncnn::Mat(width, height, (void *)input_data, (size_t)channels, channels);
+    ncnn::Mat out_image_mat = ncnn::Mat(width * realcugan->scale, height * realcugan->scale, (void *)output_data, (size_t)channels, channels);
+    return realcugan->process(in_image_mat, out_image_mat);
 }
 
 extern "C" int realcugan_process_cpu(
-  RealCUGAN *realcugan,
-  const Image *in_image,
-  Image *out_image,
-  void **mat_ptr
+    RealCUGAN *realcugan,
+    unsigned char *input_data,
+    unsigned char *output_data,
+    int width,
+    int height,
+    int channels
 ) {
-  int c = in_image->c;
-  ncnn::Mat in_image_mat =
-      ncnn::Mat(in_image->w, in_image->h, (void *)in_image->data, (size_t)c, c);
-  auto *out_image_mat = new ncnn::Mat(out_image->w, out_image->h, (size_t)c, c);
-
-  int result = realcugan->process_cpu(in_image_mat, *out_image_mat);
-  out_image->data = static_cast<unsigned char *>(out_image_mat->data);
-  *mat_ptr = out_image_mat;
-  return result;
-}
-
-extern "C" uint32_t realcugan_get_heap_budget(int gpuid) {
-  return ncnn::get_gpu_device(gpuid)->get_heap_budget();
-}
-
-extern "C" void realcugan_free_image(ncnn::Mat *mat_ptr) {
-  delete mat_ptr;
+    ncnn::Mat in_image_mat = ncnn::Mat(width, height, (void *)input_data, (size_t)channels, channels);
+    ncnn::Mat out_image_mat = ncnn::Mat(width * realcugan->scale, height * realcugan->scale, (void *)output_data, (size_t)channels, channels);
+    return realcugan->process_cpu(in_image_mat, out_image_mat);
 }
 
 extern "C" void realcugan_free(RealCUGAN *realcugan) {
-  delete realcugan;
+	delete realcugan;
 }

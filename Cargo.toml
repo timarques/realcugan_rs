@@ -1,14 +1,14 @@
 [package]
 name = "realcugan-rs"
-version = "1.0.0"
+version = "0.1.0"
 edition = "2021"
 
 [lib]
-path = "src/rs/lib.rs"
+path = "src/rust/lib.rs"
 crate-type = ["lib"]
 
 [dependencies]
-image = { version = "0.25.2", default-features = false, features = ["webp", "png", "jpeg"]}
+image = { version = "0.25.2", optional = true }
 libc = "0.2.158"
 
 [build-dependencies]
@@ -22,6 +22,8 @@ panic = "abort"
 incremental = false
 
 [features]
+default = ["image", "models"]
+image = ["dep:image"]
 system-ncnn = []
 models = ["models-se", "models-pro", "models-nose"]
 models-se = []

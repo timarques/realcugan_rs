@@ -1,6 +1,7 @@
 use cmake::Config;
 use std::process::Command;
 use std::io::BufRead;
+use std::path::PathBuf;
 
 const NCNN_REPO_URL: &str = "https://github.com/Tencent/ncnn";
 const NCNN_COMMIT_HASH: &str = "066614351391d309c96ae1e00c6fb1bd873b4949";
@@ -13,7 +14,7 @@ fn execute_command(command: &mut Command) -> Result<(), String> {
     Ok(())
 }
 
-fn clone_ncnn(target_dir: &str) -> Result<(), String> {
+fn clone_ncnn(target_dir: &PathBuf) -> Result<(), String> {
     if std::fs::exists(target_dir).unwrap() {
         return Ok(())
     }
@@ -31,7 +32,7 @@ fn clone_ncnn(target_dir: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn configure_ncnn_build(target_dir: &str) -> Config {
+fn configure_ncnn_build(target_dir: &PathBuf) -> Config {
     let mut config = Config::new(target_dir);
     config.define("NCNN_BUILD_TOOLS", "OFF")
           .define("NCNN_BUILD_EXAMPLES", "OFF")
@@ -44,8 +45,8 @@ fn configure_ncnn_build(target_dir: &str) -> Config {
     config
 }
 
-fn disable_logs(target_dir: &str) -> Result<(), std::io::Error> {
-    let platform_file = format!("{}/src/platform.h.in", target_dir);
+fn disable_logs(target_dir: &PathBuf) -> Result<(), std::io::Error> {
+    let platform_file = target_dir.join("src").join("platform.h.in");
     let file = std::fs::File::open(&platform_file)?;
     let reader = std::io::BufReader::new(file);
 
@@ -72,13 +73,11 @@ fn disable_logs(target_dir: &str) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-fn build_ncnn(output: &str) -> Result<(), String> {
-    let target_dir = format!("{}/ncnn", output);
+fn build_ncnn(output: &PathBuf) -> Result<(), String> {
+    let target_dir = output.join("ncnn");
 
-    println!("cargo:rustc-link-lib={}", "stdc++");
-    println!("cargo:rustc-link-lib={}", "pthread");
-    println!("cargo:rustc-link-lib={}", "omp");
     println!("cargo:rustc-link-lib={}", "vulkan");
+    println!("cargo:rustc-link-lib={}", "omp");
 
     clone_ncnn(&target_dir)?;
     disable_logs(&target_dir).map_err(|r| r.to_string())?;
@@ -87,7 +86,6 @@ fn build_ncnn(output: &str) -> Result<(), String> {
         .cxxflag("-O3")
         .build();
 
-    println!("cargo:rustc-link-search=native={}/lib64", output);
     println!("cargo:rustc-link-lib=static={}", "MachineIndependent");
     println!("cargo:rustc-link-lib=static={}", "SPIRV");
     println!("cargo:rustc-link-lib=static={}", "GenericCodeGen");
@@ -100,14 +98,19 @@ fn build_ncnn(output: &str) -> Result<(), String> {
 
 fn main() {
     let output = std::env::var("OUT_DIR").unwrap();
+    let output_path = PathBuf::from(&output);
+
+    println!("cargo:rustc-link-search=native={}", output_path.join("lib").display());
+    println!("cargo:rustc-link-search=native={}", output_path.join("lib64").display());
+
+    println!("cargo:rustc-link-lib={}", "stdc++");
     if cfg!(feature = "system-ncnn") {
-        println!("cargo:rustc-link-lib=dylib={}", "ncnn");
+        println!("cargo:rustc-link-lib={}", "ncnn");
     } else {
-        if let Err(e) = build_ncnn(&output) {
+        if let Err(e) = build_ncnn(&output_path) {
             panic!("Failed to build ncnn: {}", e);
         }
     }
     Config::new("src").build();
-    println!("cargo:rustc-link-search=native={}/lib", &output);
     println!("cargo:rustc-link-lib=static={}", "realcugan-wrapper");
 }

@@ -1,19 +1,21 @@
 use std::path::Path;
+use realcugan_rs::{RealCugan, Options, OptionsScaleFactor, OptionsNoiseLevel};
 
 const IMAGE: &str = "./tests/image.jpg";
 const MODEL: &str = "./models/models-se/up2x-conservative";
 
 #[test]
-fn base() {
+#[cfg(feature = "image")]
+fn with_image() {
     // Assert that the test image exists
     assert!(Path::new(IMAGE).exists(), "Test image does not exist");
 
-    // Create RealCugan instance
-    let result = realcugan_rs::RealCugan::build()
-    .model_files(&format!("{}.param", MODEL),&format!("{}.bin", MODEL))
-    .scale(2)
-    .noise(-1)
-    .build();
+    let result = RealCugan::new(
+        Options::default()
+        .noise_level(OptionsNoiseLevel::Conservative)
+        .scale_factor(OptionsScaleFactor::Double)
+        .model_files(&format!("{}.param", MODEL), &format!("{}.bin", MODEL)).unwrap()
+    );
 
     // Assert that RealCugan instance was created successfully
     assert!(result.is_ok(), "{}", result.err().unwrap().to_string());
@@ -50,13 +52,18 @@ fn base() {
 
 }
 
+#[cfg(feature = "image")]
 #[test]
-fn threads() {
-    let realcugan = realcugan_rs::RealCugan::build()
-    .model_files(&format!("{}.param", MODEL),&format!("{}.bin", MODEL))
-    .scale(2)
-    .noise(-1)
-    .unwrap();
+fn with_threads() {
+    let result = RealCugan::new(
+        Options::default()
+        .noise_level(OptionsNoiseLevel::Conservative)
+        .scale_factor(OptionsScaleFactor::Double)
+        .model_files(&format!("{}.param", MODEL), &format!("{}.bin", MODEL)).unwrap()
+    );
+
+    assert!(result.is_ok(), "{}", result.err().unwrap().to_string());
+    let realcugan = result.unwrap();
 
     let mut threads = Vec::new();
 
@@ -65,7 +72,7 @@ fn threads() {
         let realcugan_clone = realcugan.clone();
 
         let handle = std::thread::spawn(move || {
-            let result = realcugan_clone.process_image_from_path(&std::path::PathBuf::from(IMAGE));
+            let result = realcugan_clone.process_file(&std::path::PathBuf::from(IMAGE));
             assert!(result.is_ok());
             let upscaled_image = result.unwrap();
             let path = format!("/tmp/upscaled{}.png", i);
@@ -85,9 +92,13 @@ fn threads() {
 
 #[cfg(feature = "models")]
 #[test]
-fn model() {
-    let r = realcugan_rs::RealCugan::from_model(realcugan_rs::Model::Pro3xNoDenoise);
-    let result = r.process_image_from_path(&std::path::PathBuf::from(IMAGE));
+fn with_model() {
+    let result = RealCugan::new(
+        Options::default().model(realcugan_rs::OptionsModel::Pro2xNoDenoise)
+    );
+    assert!(result.is_ok(), "{}", result.err().unwrap().to_string());
+    let r = result.unwrap();
+    let result = r.process_file(&std::path::PathBuf::from(IMAGE));
     assert!(result.is_ok());
     let upscaled_image = result.unwrap();
     let path = "/tmp/upscaled_embeded_models.png";

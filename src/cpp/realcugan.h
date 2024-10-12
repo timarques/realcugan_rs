@@ -3,8 +3,6 @@
 #ifndef REALCUGAN_H
 #define REALCUGAN_H
 
-#include <string>
-
 // ncnn
 #include "net.h"
 #include "gpu.h"
