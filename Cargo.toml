@@ -1,5 +1,5 @@
 [package]
-name = "realcugan-rs"
+name = "realcugan_rs"
 version = "0.1.0"
 edition = "2021"
 
@@ -22,7 +22,7 @@ panic = "abort"
 incremental = false
 
 [features]
-default = ["system-ncnn", "image", "models"]
+default = ["image", "models"]
 image = ["dep:image"]
 system-ncnn = []
 models = ["models-se", "models-pro", "models-nose"]
