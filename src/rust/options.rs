@@ -340,31 +340,19 @@ pub enum OptionsNoiseLevel {
 }
 
 pub struct Options<'a> {
-    pub (super) gpuid: i32,
-    pub (super) threads: i32,
-    pub (super) tta_mode: bool,
-    pub (super) sync_gap: i32,
-    pub (super) tile_size: i32,
-    pub (super) scale_factor: i32,
-    pub (super) noise_level: i32,
-    pub (super) param: &'a [u8],
-    pub (super) bin: &'a [u8],
+    pub gpuid: i32,
+    pub threads: i32,
+    pub tta_mode: bool,
+    pub sync_gap: i32,
+    pub tile_size: i32,
+    pub scale_factor: i32,
+    pub noise_level: i32,
+    pub param: &'a [u8],
+    pub bin: &'a [u8],
 }
 
 impl <'a>Default for Options<'a> {
-    fn default() -> Self {
-
-        #[allow(unreachable_patterns)]
-        let bytes: (&[u8], &[u8]) = match () {
-            #[cfg(feature = "models-se")]
-            () => MODEL_SE_2X_CONSERVATIVE,
-            #[cfg(feature = "models-pro")]
-            () => MODEL_PRO_2X_CONSERVATIVE,
-            #[cfg(feature = "models-nose")]
-            () => MODEL_NOSE_2X_NO_DENOISE,
-            _ => (&[], &[]),
-        };
-
+    fn default() -> Self { 
         Self {
             gpuid: 0,
             threads: 1,
@@ -373,13 +361,24 @@ impl <'a>Default for Options<'a> {
             tile_size: 0,
             scale_factor: 2,
             noise_level: 0,
-            param: bytes.0,
-            bin: bytes.1,
+            param: Self::DEFAULT_BYTES.0,
+            bin: Self::DEFAULT_BYTES.1,
         }
     }
 }
 
 impl <'a>Options<'a> {
+
+    #[allow(unreachable_patterns)]
+    const DEFAULT_BYTES: (&'static [u8], &'static [u8]) = match () {
+        #[cfg(feature = "models-se")]
+        () => MODEL_SE_2X_CONSERVATIVE,
+        #[cfg(feature = "models-pro")]
+        () => MODEL_PRO_2X_CONSERVATIVE,
+        #[cfg(feature = "models-nose")]
+        () => MODEL_NOSE_2X_NO_DENOISE,
+        _ => (&[], &[]),
+    };
 
     #[cfg(any(feature = "models-nose", feature = "models-pro", feature = "models-se"))]
     pub fn model(mut self, model: OptionsModel) -> Self {

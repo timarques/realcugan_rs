@@ -22,7 +22,7 @@ panic = "abort"
 incremental = false
 
 [features]
-default = ["image", "models"]
+default = ["system-ncnn", "image", "models"]
 image = ["dep:image"]
 system-ncnn = []
 models = ["models-se", "models-pro", "models-nose"]
