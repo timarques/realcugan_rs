@@ -1,11 +1,8 @@
-#include "realcugan.h"
 
-#include "realcugan_preproc.comp.hex.h"
-#include "realcugan_postproc.comp.hex.h"
-#include "realcugan_4x_postproc.comp.hex.h"
-#include "realcugan_preproc_tta.comp.hex.h"
-#include "realcugan_postproc_tta.comp.hex.h"
-#include "realcugan_4x_postproc_tta.comp.hex.h"
+#ifndef REALCUGAN_WRAPPER_H
+#define REALCUGAN_WRAPPER_H
+
+#include "realcugan.h"
 
 int realcugan_get_default_tile_size(int gpuid, int scale) {
 	int tilesize = 0;
@@ -97,8 +94,8 @@ extern "C" int realcugan_process(
     int height,
     int channels
 ) {
-    ncnn::Mat in_image_mat = ncnn::Mat(width, height, (void *)input_data, (size_t)channels, channels);
-    ncnn::Mat out_image_mat = ncnn::Mat(width * realcugan->scale, height * realcugan->scale, (void *)output_data, (size_t)channels, channels);
+    ncnn::Mat in_image_mat = ncnn::Mat(width, height, (void *)input_data, channels, channels);
+    ncnn::Mat out_image_mat = ncnn::Mat(width * realcugan->scale, height * realcugan->scale, (void *)output_data, channels, channels);
     return realcugan->process(in_image_mat, out_image_mat);
 }
 
@@ -110,11 +107,13 @@ extern "C" int realcugan_process_cpu(
     int height,
     int channels
 ) {
-    ncnn::Mat in_image_mat = ncnn::Mat(width, height, (void *)input_data, (size_t)channels, channels);
-    ncnn::Mat out_image_mat = ncnn::Mat(width * realcugan->scale, height * realcugan->scale, (void *)output_data, (size_t)channels, channels);
+    ncnn::Mat in_image_mat = ncnn::Mat(width, height, (void *)input_data, channels, channels);
+    ncnn::Mat out_image_mat = ncnn::Mat(width * realcugan->scale, height * realcugan->scale, (void *)output_data, channels, channels);
     return realcugan->process_cpu(in_image_mat, out_image_mat);
 }
 
 extern "C" void realcugan_free(RealCUGAN *realcugan) {
 	delete realcugan;
 }
+
+#endif // REALCUGAN_WRAPPER_H

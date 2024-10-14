@@ -90,11 +90,28 @@ fn with_threads() {
     }
 }
 
-#[cfg(feature = "models")]
+#[cfg(feature = "models-pro")]
 #[test]
-fn with_model() {
+fn with_model_pro() {
     let result = RealCugan::new(
         Options::default().model(realcugan_rs::OptionsModel::Pro2xNoDenoise)
+    );
+    assert!(result.is_ok(), "{}", result.err().unwrap().to_string());
+    let r = result.unwrap();
+    let result = r.process_file(&std::path::PathBuf::from(IMAGE));
+    assert!(result.is_ok());
+    let upscaled_image = result.unwrap();
+    let path = "/tmp/upscaled_embeded_models.png";
+    upscaled_image.save_with_format(path, image::ImageFormat::Png).unwrap();
+    assert!(Path::new(&path).exists(), "Failed to save upscaled image");
+    let _ = std::fs::remove_file(&path);
+}
+
+#[cfg(feature = "models-se")]
+#[test]
+fn with_model_se() {
+    let result = RealCugan::new(
+        Options::default().model(realcugan_rs::OptionsModel::Se2xConservative)
     );
     assert!(result.is_ok(), "{}", result.err().unwrap().to_string());
     let r = result.unwrap();

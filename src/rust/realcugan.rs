@@ -32,7 +32,7 @@ extern "C" {
     fn realcugan_process(
         realesrgan: *mut c_void,
         in_image: *const c_uchar,
-        out_image: *const c_uchar,
+        out_image: *mut c_uchar,
         width: c_int,
         height: c_int,
         channels: c_int,
@@ -41,7 +41,7 @@ extern "C" {
     fn realcugan_process_cpu(
         realesrgan: *mut c_void,
         in_image: *const c_uchar,
-        out_image: *const c_uchar,
+        out_image: *mut c_uchar,
         width: c_int,
         height: c_int,
         channels: c_int,
