@@ -1,109 +1,109 @@
 use std::path::Path;
 
 #[cfg(feature = "models-nose")]
-const MODEL_NOSE_2X_NO_DENOISE: (&'static [u8], &'static [u8]) = (
+const MODEL_NOSE_2X_NO_DENOISE: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-nose/up2x-no-denoise.param"),
     include_bytes!("../../models/models-nose/up2x-no-denoise.bin"),
 );
 
 #[cfg(feature = "models-pro")]
-const MODEL_PRO_2X_NO_DENOISE: (&'static [u8], &'static [u8]) = (
+const MODEL_PRO_2X_NO_DENOISE: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-pro/up2x-no-denoise.param"),
     include_bytes!("../../models/models-pro/up2x-no-denoise.bin"),
 );
 
 #[cfg(feature = "models-pro")]
-const MODEL_PRO_2X_CONSERVATIVE: (&'static [u8], &'static [u8]) = (
+const MODEL_PRO_2X_CONSERVATIVE: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-pro/up2x-conservative.param"),
     include_bytes!("../../models/models-pro/up2x-conservative.bin"),
 );
 
 #[cfg(feature = "models-pro")]
-const MODEL_PRO_2X_DENOISE_X3: (&'static [u8], &'static [u8]) = (
+const MODEL_PRO_2X_DENOISE_X3: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-pro/up2x-denoise3x.param"),
     include_bytes!("../../models/models-pro/up2x-denoise3x.bin"),
 );
 
 #[cfg(feature = "models-pro")]
-const MODEL_PRO_3X_NO_DENOISE: (&'static [u8], &'static [u8]) = (
+const MODEL_PRO_3X_NO_DENOISE: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-pro/up3x-no-denoise.param"),
     include_bytes!("../../models/models-pro/up3x-no-denoise.bin"),
 );
 
 #[cfg(feature = "models-pro")]
-const MODEL_PRO_3X_CONSERVATIVE: (&'static [u8], &'static [u8]) = (
+const MODEL_PRO_3X_CONSERVATIVE: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-pro/up3x-conservative.param"),
     include_bytes!("../../models/models-pro/up3x-conservative.bin"),
 );
 
 #[cfg(feature = "models-pro")]
-const MODEL_PRO_3X_DENOISE_X3: (&'static [u8], &'static [u8]) = (
+const MODEL_PRO_3X_DENOISE_X3: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-pro/up3x-denoise3x.param"),
     include_bytes!("../../models/models-pro/up3x-denoise3x.bin"),
 );
 
 #[cfg(feature = "models-se")]
-const MODEL_SE_2X_NO_DENOISE: (&'static [u8], &'static [u8]) = (
+const MODEL_SE_2X_NO_DENOISE: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-se/up2x-no-denoise.param"),
     include_bytes!("../../models/models-se/up2x-no-denoise.bin"),
 );
 
 #[cfg(feature = "models-se")]
-const MODEL_SE_2X_CONSERVATIVE: (&'static [u8], &'static [u8]) = (
+const MODEL_SE_2X_CONSERVATIVE: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-se/up2x-conservative.param"),
     include_bytes!("../../models/models-se/up2x-conservative.bin"),
 );
 
 #[cfg(feature = "models-se")]
-const MODEL_SE_2X_DENOISE_X1: (&'static [u8], &'static [u8]) = (
+const MODEL_SE_2X_DENOISE_X1: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-se/up2x-denoise1x.param"),
     include_bytes!("../../models/models-se/up2x-denoise1x.bin"),
 );
 
 #[cfg(feature = "models-se")]
-const MODEL_SE_2X_DENOISE_X2: (&'static [u8], &'static [u8]) = (
+const MODEL_SE_2X_DENOISE_X2: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-se/up2x-denoise2x.param"),
     include_bytes!("../../models/models-se/up2x-denoise2x.bin"),
 );
 
 #[cfg(feature = "models-se")]
-const MODEL_SE_2X_DENOISE_X3: (&'static [u8], &'static [u8]) = (
+const MODEL_SE_2X_DENOISE_X3: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-se/up2x-denoise3x.param"),
     include_bytes!("../../models/models-se/up2x-denoise3x.bin"),
 );
 
 #[cfg(feature = "models-se")]
-const MODEL_SE_3X_NO_DENOISE: (&'static [u8], &'static [u8]) = (
+const MODEL_SE_3X_NO_DENOISE: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-se/up3x-no-denoise.param"),
     include_bytes!("../../models/models-se/up3x-no-denoise.bin"),
 );
 
 #[cfg(feature = "models-se")]
-const MODEL_SE_3X_CONSERVATIVE: (&'static [u8], &'static [u8]) = (
+const MODEL_SE_3X_CONSERVATIVE: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-se/up3x-conservative.param"),
     include_bytes!("../../models/models-se/up3x-conservative.bin"),
 );
 
 #[cfg(feature = "models-se")]
-const MODEL_SE_3X_DENOISE_X3: (&'static [u8], &'static [u8]) = (
+const MODEL_SE_3X_DENOISE_X3: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-se/up3x-denoise3x.param"),
     include_bytes!("../../models/models-se/up3x-denoise3x.bin"),
 );
 
 #[cfg(feature = "models-se")]
-const MODEL_SE_4X_NO_DENOISE: (&'static [u8], &'static [u8]) = (
+const MODEL_SE_4X_NO_DENOISE: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-se/up4x-no-denoise.param"),
     include_bytes!("../../models/models-se/up4x-no-denoise.bin"),
 );
 
 #[cfg(feature = "models-se")]
-const MODEL_SE_4X_CONSERVATIVE: (&'static [u8], &'static [u8]) = (
+const MODEL_SE_4X_CONSERVATIVE: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-se/up4x-conservative.param"),
     include_bytes!("../../models/models-se/up4x-conservative.bin"),
 );
 
 #[cfg(feature = "models-se")]
-const MODEL_SE_4X_DENOISE_X3: (&'static [u8], &'static [u8]) = (
+const MODEL_SE_4X_DENOISE_X3: (&[u8], &[u8]) = (
     include_bytes!("../../models/models-se/up4x-denoise3x.param"),
     include_bytes!("../../models/models-se/up4x-denoise3x.bin"),
 );
@@ -339,6 +339,7 @@ pub enum OptionsNoiseLevel {
     Conservative = -1,
 }
 
+#[derive(Debug, Clone)]
 pub struct Options<'a> {
     pub gpuid: i32,
     pub threads: i32,

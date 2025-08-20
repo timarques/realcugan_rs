@@ -14,7 +14,7 @@ fn with_image() {
         Options::default()
         .noise_level(OptionsNoiseLevel::Conservative)
         .scale_factor(OptionsScaleFactor::Double)
-        .model_files(&format!("{}.param", MODEL), &format!("{}.bin", MODEL)).unwrap()
+        .model_files(&format!("{MODEL}.param"), &format!("{MODEL}.bin")).unwrap()
     );
 
     // Assert that RealCugan instance was created successfully
@@ -48,45 +48,32 @@ fn with_image() {
         upscaled_metadata.len() > original_metadata.len(),
         "Upscaled image file is not larger than the original"
     );
-    let _ = std::fs::remove_file(&upscaled_save_path);
+    let _ = std::fs::remove_file(upscaled_save_path);
 
 }
 
 #[cfg(feature = "image")]
 #[test]
-fn with_threads() {
+fn with_loop() {
     let result = RealCugan::new(
         Options::default()
         .noise_level(OptionsNoiseLevel::Conservative)
         .scale_factor(OptionsScaleFactor::Double)
-        .model_files(&format!("{}.param", MODEL), &format!("{}.bin", MODEL)).unwrap()
+        .model_files(&format!("{MODEL}.param"), &format!("{MODEL}.bin")).unwrap()
     );
 
     assert!(result.is_ok(), "{}", result.err().unwrap().to_string());
     let realcugan = result.unwrap();
 
-    let mut threads = Vec::new();
-
     for i in 0..10 {
 
-        let realcugan_clone = realcugan.clone();
-
-        let handle = std::thread::spawn(move || {
-            let result = realcugan_clone.process_file(&std::path::PathBuf::from(IMAGE));
-            assert!(result.is_ok());
-            let upscaled_image = result.unwrap();
-            let path = format!("/tmp/upscaled{}.png", i);
-            upscaled_image.save_with_format(&path, image::ImageFormat::Png).unwrap();
-            assert!(Path::new(&path).exists(), "Failed to save upscaled image");
-            let _ = std::fs::remove_file(&path);
-        });
-
-        threads.push(handle);
-
-    }
-
-    for thread in threads {
-        assert!(thread.join().is_ok());
+        let result = realcugan.process_file(std::path::PathBuf::from(IMAGE));
+        assert!(result.is_ok());
+        let upscaled_image = result.unwrap();
+        let path = format!("/tmp/upscaled{i}.png");
+        upscaled_image.save_with_format(&path, image::ImageFormat::Png).unwrap();
+        assert!(Path::new(&path).exists(), "Failed to save upscaled image");
+        assert!(std::fs::remove_file(&path).is_ok());
     }
 }
 
@@ -98,13 +85,13 @@ fn with_model_pro() {
     );
     assert!(result.is_ok(), "{}", result.err().unwrap().to_string());
     let r = result.unwrap();
-    let result = r.process_file(&std::path::PathBuf::from(IMAGE));
+    let result = r.process_file(std::path::PathBuf::from(IMAGE));
     assert!(result.is_ok());
     let upscaled_image = result.unwrap();
-    let path = "/tmp/upscaled_embeded_models.png";
+    let path = "/tmp/upscaled_models_pro.png";
     upscaled_image.save_with_format(path, image::ImageFormat::Png).unwrap();
     assert!(Path::new(&path).exists(), "Failed to save upscaled image");
-    let _ = std::fs::remove_file(&path);
+    assert!(std::fs::remove_file(path).is_ok());
 }
 
 #[cfg(feature = "models-se")]
@@ -115,11 +102,11 @@ fn with_model_se() {
     );
     assert!(result.is_ok(), "{}", result.err().unwrap().to_string());
     let r = result.unwrap();
-    let result = r.process_file(&std::path::PathBuf::from(IMAGE));
+    let result = r.process_file(std::path::PathBuf::from(IMAGE));
     assert!(result.is_ok());
     let upscaled_image = result.unwrap();
-    let path = "/tmp/upscaled_embeded_models.png";
+    let path = "/tmp/upscaled_models_se.png";
     upscaled_image.save_with_format(path, image::ImageFormat::Png).unwrap();
     assert!(Path::new(&path).exists(), "Failed to save upscaled image");
-    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path);
 }

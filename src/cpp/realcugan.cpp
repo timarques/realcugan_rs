@@ -2,22 +2,6 @@
 
 #include "realcugan.h"
 
-#include <algorithm>
-#include <vector>
-#include <map>
-
-// ncnn
-#include "cpu.h"
-
-#include "realcugan_preproc.comp.hex.h"
-#include "realcugan_postproc.comp.hex.h"
-#include "realcugan_4x_postproc.comp.hex.h"
-#include "realcugan_preproc_tta.comp.hex.h"
-#include "realcugan_postproc_tta.comp.hex.h"
-#include "realcugan_4x_postproc_tta.comp.hex.h"
-
-// CUSTOM
-
 int RealCUGAN::load_files(FILE *param, FILE *bin)
 {
     net.opt.use_vulkan_compute = vkdev ? true : false;

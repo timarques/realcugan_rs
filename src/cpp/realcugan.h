@@ -4,9 +4,21 @@
 #define REALCUGAN_H
 
 // ncnn
-#include "net.h"
-#include "gpu.h"
-#include "layer.h"
+#include "ncnn/net.h"
+#include "ncnn/gpu.h"
+#include "ncnn/cpu.h"
+#include "ncnn/layer.h"
+
+#include <algorithm>
+#include <vector>
+#include <map>
+
+#include "realcugan_preproc.comp.hex.h"
+#include "realcugan_postproc.comp.hex.h"
+#include "realcugan_4x_postproc.comp.hex.h"
+#include "realcugan_preproc_tta.comp.hex.h"
+#include "realcugan_postproc_tta.comp.hex.h"
+#include "realcugan_4x_postproc_tta.comp.hex.h"
 
 class FeatureCache;
 class RealCUGAN

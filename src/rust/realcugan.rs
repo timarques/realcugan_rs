@@ -1,10 +1,11 @@
-use crate::options::Options;
-
-use std::sync::Arc;
+use std::ffi::c_void;
+use std::marker::PhantomData;
 use std::sync::Once;
-use std::sync::atomic::{AtomicPtr, Ordering};
 
-use libc::{c_char, c_int, c_uchar, c_void, FILE};
+use libc::{c_int, c_uchar, FILE};
+
+use crate::error::Error;
+use crate::options::Options;
 
 extern "C" {
     fn realcugan_init(
@@ -18,13 +19,11 @@ extern "C" {
     ) -> *mut c_void;
 
     fn realcugan_get_gpu_count() -> c_int;
-
     fn realcugan_destroy_gpu_instance();
-
     fn realcugan_free(realcugan: *mut c_void);
 
     fn realcugan_load_files(
-        realcugan: *mut c_void, 
+        realcugan: *mut c_void,
         param_path: *mut FILE,
         model_path: *mut FILE
     ) -> c_int;
@@ -48,65 +47,20 @@ extern "C" {
     ) -> c_int;
 }
 
-#[derive(Debug, Clone)]
-pub struct RealCugan {
-    pointer: Arc<AtomicPtr<c_void>>,
-    scale_factor: i32,
-    use_cpu: bool
+
+#[derive(Debug)]
+pub struct RealCugan<'a> {
+    pointer: *mut c_void,
+    options: Options<'a>,
+    _marker: PhantomData<&'a ()>,
 }
 
-impl RealCugan {
+impl<'a> RealCugan<'a> {
 
-    fn validate_gpu(gpu: i32) -> Result<(), String> {
-        if gpu == -1 {
-            return Ok(())
-        }
-        let count = unsafe { realcugan_get_gpu_count() };
-        if gpu >= count {
-            unsafe { realcugan_destroy_gpu_instance() }
-            return Err(format!("gpu {} not found. available gpus: {}", gpu, count))
-        }
-        Ok(())
-    }
-
-    fn create_file_pointer(contents: &[u8]) -> *mut FILE {
-        let buffer = contents.as_ptr() as *mut c_void;
-        let size = contents.len();
-        
-        unsafe { libc::fmemopen(buffer, size, "rb\0".as_ptr() as *const c_char) }
-    }
-
-    fn load_model(realcugan: *mut c_void, param: &[u8], bin: &[u8]) -> Result<(), String> {
-        if param.len() == 0 || bin.len() == 0 {
-            return Err(format!("invalid model"))
-        }
-
-        let file_bin_pointer = Self::create_file_pointer(bin);
-        let file_param_pointer = Self::create_file_pointer(param);
-        if file_bin_pointer.is_null() || file_param_pointer.is_null() {
-            return Err(format!("failed to create file pointers"));
-        }
-
-        let result = unsafe { realcugan_load_files(realcugan, file_param_pointer, file_bin_pointer) };
-        if result != 0 {
-            Err(format!("failed to load model files. error code: {}", result))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn setup_clean_up() {
-        static CLEANUP: Once = Once::new();
-        CLEANUP.call_once(|| {
-            extern "C" fn cleanup() {
-                unsafe { realcugan_destroy_gpu_instance() }
-            }
-            unsafe { libc::atexit(cleanup) };
-        });
-    }
-
-    pub fn new(options: Options) -> Result<Self, String> {
+    pub fn new(options: Options<'a>) -> Result<Self, Error> {
+        Self::setup_cleanup();
         Self::validate_gpu(options.gpuid)?;
+
         let pointer = unsafe {
             realcugan_init(
                 options.gpuid,
@@ -115,83 +69,181 @@ impl RealCugan {
                 options.scale_factor,
                 options.noise_level,
                 options.sync_gap,
-                options.tile_size
+                options.tile_size,
             )
         };
+
+        if pointer.is_null() {
+            unsafe { realcugan_destroy_gpu_instance() };
+            return Err(Error::InvalidPointer);
+        }
+
         Self::load_model(pointer, options.param, options.bin)?;
-        Self::setup_clean_up();
 
         Ok(Self {
-            pointer: Arc::new(AtomicPtr::new(pointer)),
-            scale_factor: options.scale_factor,
-            use_cpu: options.gpuid == -1,
+            pointer,
+            options,
+            _marker: PhantomData,
         })
     }
-
-    pub fn process(&self, input: &[u8], width: usize, height: usize) -> Result<Vec<u8>, String> {
-        let ptr = self.pointer.load(Ordering::Acquire);
-        if ptr.is_null() {
-            return Err(format!("invalid pointer"))
+    
+    pub fn options(&self) -> &Options<'a> {
+        &self.options
+    }
+    
+    fn validate_gpu(gpu: i32) -> Result<(), Error> {
+        if gpu == -1 {
+            return Ok(());
         }
-
-        let input_length = input.len();
-        let channels = input_length / (width * height);
-
-        if input_length % (width * height) != 0 {
-            return Err(format!("invalid input"))
+        let count = unsafe { realcugan_get_gpu_count() };
+        if gpu >= count {
+            return Err(Error::GpuNotFound { requested: gpu, available: count });
         }
-
-        let output_length = (width * self.scale_factor as usize) * (height * self.scale_factor as usize)  * channels;
-        let mut output = vec![0u8; output_length];
-
-        let result = if self.use_cpu {
-            unsafe {
-                realcugan_process(
-                    ptr,
-                    input.as_ptr(),
-                    output.as_mut_ptr(),
-                    width as c_int,
-                    height as c_int,
-                    channels as c_int,
-                )
-            }
-        } else {
-            unsafe {
-                realcugan_process_cpu(
-                    ptr,
-                    input.as_ptr(),
-                    output.as_mut_ptr(),
-                    width as c_int,
-                    height as c_int,
-                    channels as c_int,
-                )
-            }
-        };
-
-        if result != 0 {
-            return Err(format!("failed to process image"))
-        }
-
-        Ok(output)
+        Ok(())
     }
 
+    fn create_file_pointer(contents: &[u8]) -> *mut FILE {
+        unsafe { 
+            libc::fmemopen(
+                contents.as_ptr() as *mut c_void,
+                contents.len(),
+                c"rb".as_ptr()
+            )
+        }
+    }
+
+    fn load_model(realcugan: *mut c_void, param: &[u8], bin: &[u8]) -> Result<(), Error> {
+        if param.is_empty() || bin.is_empty() {
+            return Err(Error::InvalidModel);
+        }
+
+        let file_param_pointer = Self::create_file_pointer(param);
+        let file_bin_pointer = Self::create_file_pointer(bin);
+
+        if file_bin_pointer.is_null() || file_param_pointer.is_null() {
+            if !file_param_pointer.is_null() {
+                unsafe {
+                    libc::fclose(file_param_pointer)
+                };
+            }
+
+            if !file_bin_pointer.is_null() { 
+                unsafe {
+                    libc::fclose(file_bin_pointer)
+                };
+            }
+
+            return Err(Error::FilePointerCreationFailed);
+        }
+
+        let result = unsafe {
+            realcugan_load_files(
+                realcugan,
+                file_param_pointer,
+                file_bin_pointer
+            )
+        };
+
+        unsafe {
+            libc::fclose(file_param_pointer);
+            libc::fclose(file_bin_pointer);
+        }
+
+        if result != 0 {
+            Err(Error::ModelLoadFailed { code: result })
+        } else {
+            Ok(())
+        }
+    }
+    
+    fn setup_cleanup() {
+        static CLEANUP: Once = Once::new();
+        CLEANUP.call_once(|| {
+            extern "C" fn cleanup() {
+                unsafe { realcugan_destroy_gpu_instance() };
+            }
+            unsafe { libc::atexit(cleanup) };
+        });
+    }
+
+    pub fn process(&self, input: &[u8], width: usize, height: usize) -> Result<Vec<u8>, Error> {
+        if self.pointer.is_null() {
+            return Err(Error::InvalidPointer);
+        }
+
+        let expected_length = width * height;
+        if input.len() % expected_length != 0 {
+            return Err(Error::InvalidInput {
+                expected_length,
+                actual_length: input.len()
+            });
+        }
+        
+        let process_fn = if self.options.gpuid >= 0 {
+            realcugan_process
+        } else {
+            realcugan_process_cpu
+        };
+
+        let channels = input.len() / expected_length;
+        let output_width = width * self.options.scale_factor as usize;
+        let output_height = height * self.options.scale_factor as usize;
+        let mut output = vec![0u8; output_width * output_height * channels];
+        let code = unsafe {
+            process_fn(
+                self.pointer,
+                input.as_ptr(),
+                output.as_mut_ptr(),
+                width as c_int,
+                height as c_int,
+                channels as c_int
+            )
+        };
+
+        if code == 0 {
+            Ok(output)
+        } else {
+            Err(Error::ProcessingFailed { code })
+        }
+    }
+
+
+    pub fn process_batch<I, B>(
+        &self,
+        inputs: I,
+        width: usize,
+        height: usize,
+    ) -> Result<Vec<Vec<u8>>, Error>
+    where 
+        I: IntoIterator<Item = B>,
+        B: AsRef<[u8]>,
+    {
+        inputs
+            .into_iter()
+            .map(|input_chunk| self.process(input_chunk.as_ref(), width, height))
+            .collect()
+    }
+    
     #[cfg(feature = "image")]
-    pub fn process_file<P: AsRef<std::path::Path>>(&self, path: P) -> Result<crate::Image, String> {
-        let img = image::open(path).map_err(|e| format!("failed to open image: {}", e))?;
+    pub fn process_file<P>(&self, path: P) -> Result<crate::Image, Error>
+    where
+        P: AsRef<std::path::Path>,
+    {
+        let img = image::open(path).map_err(|e| Error::ImageOpenFailed(e.to_string()))?;
         self.process_image(img)
     }
 
     #[cfg(feature = "image")]
-    pub fn process_image(&self, image: crate::Image) -> Result<crate::Image, String> {
+    pub fn process_image(&self, image: crate::Image) -> Result<crate::Image, Error> {
         use image::{ColorType, ImageBuffer, DynamicImage};
-
+        
         let color_type = image.color();
         let input = image.to_rgb8().into_raw();
         let width = image.width();
         let height = image.height();
         let output = self.process(&input, width as usize, height as usize)?;
-        let new_width = width * self.scale_factor as u32;
-        let new_height = height * self.scale_factor as u32;
+        let new_width = width * self.options.scale_factor as u32;
+        let new_height = height * self.options.scale_factor as u32;
     
         let dynamic_image = match color_type {
             ColorType::Rgb8 => ImageBuffer::from_raw(new_width, new_height, output).map(DynamicImage::ImageRgb8),
@@ -201,21 +253,15 @@ impl RealCugan {
             _ => ImageBuffer::from_raw(new_width, new_height, output).map(DynamicImage::ImageRgb8),
         };
     
-        Ok(dynamic_image.ok_or(format!("failed to convert color type"))?)
+        dynamic_image.ok_or(Error::ColorConversionFailed)
     }
-
 }
 
-impl Drop for RealCugan {
+
+impl Drop for RealCugan<'_> {
     fn drop(&mut self) {
-        if Arc::strong_count(&self.pointer) == 1 {
-            let ptr = self.pointer.load(Ordering::Acquire);
-            if !ptr.is_null() {
-                unsafe { realcugan_free(ptr) }
-            }
+        if !self.pointer.is_null() {
+            unsafe { realcugan_free(self.pointer) };
         }
     }
 }
-
-unsafe impl Send for RealCugan {}
-unsafe impl Sync for RealCugan {}
