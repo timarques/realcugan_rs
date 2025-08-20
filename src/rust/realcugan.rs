@@ -1,6 +1,4 @@
 use std::ffi::c_void;
-use std::marker::PhantomData;
-use std::sync::Once;
 
 use libc::{c_int, c_uchar, FILE};
 
@@ -29,7 +27,7 @@ extern "C" {
     ) -> c_int;
 
     fn realcugan_process(
-        realesrgan: *mut c_void,
+        realcugan: *mut c_void,
         in_image: *const c_uchar,
         out_image: *mut c_uchar,
         width: c_int,
@@ -38,7 +36,7 @@ extern "C" {
     ) -> c_int;
 
     fn realcugan_process_cpu(
-        realesrgan: *mut c_void,
+        realcugan: *mut c_void,
         in_image: *const c_uchar,
         out_image: *mut c_uchar,
         width: c_int,
@@ -47,18 +45,14 @@ extern "C" {
     ) -> c_int;
 }
 
-
 #[derive(Debug)]
 pub struct RealCugan<'a> {
     pointer: *mut c_void,
     options: Options<'a>,
-    _marker: PhantomData<&'a ()>,
 }
 
 impl<'a> RealCugan<'a> {
-
     pub fn new(options: Options<'a>) -> Result<Self, Error> {
-        Self::setup_cleanup();
         Self::validate_gpu(options.gpuid)?;
 
         let pointer = unsafe {
@@ -75,16 +69,15 @@ impl<'a> RealCugan<'a> {
 
         if pointer.is_null() {
             unsafe { realcugan_destroy_gpu_instance() };
-            return Err(Error::InvalidPointer);
+            return Err(Error::InitializationFailed);
         }
 
-        Self::load_model(pointer, options.param, options.bin)?;
+        if let Err(error) = Self::load_model(pointer, options.param, options.bin) {
+            unsafe { realcugan_free(pointer) };
+            return Err(error);
+        }
 
-        Ok(Self {
-            pointer,
-            options,
-            _marker: PhantomData,
-        })
+        Ok(Self { pointer, options })
     }
     
     pub fn options(&self) -> &Options<'a> {
@@ -95,11 +88,16 @@ impl<'a> RealCugan<'a> {
         if gpu == -1 {
             return Ok(());
         }
+        
         let count = unsafe { realcugan_get_gpu_count() };
         if gpu >= count {
-            return Err(Error::GpuNotFound { requested: gpu, available: count });
+            Err(Error::GpuNotFound { 
+                requested: gpu, 
+                available: count 
+            })
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     fn create_file_pointer(contents: &[u8]) -> *mut FILE {
@@ -122,17 +120,11 @@ impl<'a> RealCugan<'a> {
 
         if file_bin_pointer.is_null() || file_param_pointer.is_null() {
             if !file_param_pointer.is_null() {
-                unsafe {
-                    libc::fclose(file_param_pointer)
-                };
+                unsafe { libc::fclose(file_param_pointer) };
             }
-
             if !file_bin_pointer.is_null() { 
-                unsafe {
-                    libc::fclose(file_bin_pointer)
-                };
+                unsafe { libc::fclose(file_bin_pointer) };
             }
-
             return Err(Error::FilePointerCreationFailed);
         }
 
@@ -155,16 +147,6 @@ impl<'a> RealCugan<'a> {
             Ok(())
         }
     }
-    
-    fn setup_cleanup() {
-        static CLEANUP: Once = Once::new();
-        CLEANUP.call_once(|| {
-            extern "C" fn cleanup() {
-                unsafe { realcugan_destroy_gpu_instance() };
-            }
-            unsafe { libc::atexit(cleanup) };
-        });
-    }
 
     pub fn process(&self, input: &[u8], width: usize, height: usize) -> Result<Vec<u8>, Error> {
         if self.pointer.is_null() {
@@ -179,7 +161,7 @@ impl<'a> RealCugan<'a> {
             });
         }
         
-        let process_fn = if self.options.gpuid >= 0 {
+        let process_function = if self.options.gpuid >= 0 {
             realcugan_process
         } else {
             realcugan_process_cpu
@@ -189,8 +171,9 @@ impl<'a> RealCugan<'a> {
         let output_width = width * self.options.scale_factor as usize;
         let output_height = height * self.options.scale_factor as usize;
         let mut output = vec![0u8; output_width * output_height * channels];
+        
         let code = unsafe {
-            process_fn(
+            process_function(
                 self.pointer,
                 input.as_ptr(),
                 output.as_mut_ptr(),
@@ -206,7 +189,6 @@ impl<'a> RealCugan<'a> {
             Err(Error::ProcessingFailed { code })
         }
     }
-
 
     pub fn process_batch<I, B>(
         &self,
@@ -229,8 +211,8 @@ impl<'a> RealCugan<'a> {
     where
         P: AsRef<std::path::Path>,
     {
-        let img = image::open(path).map_err(|e| Error::ImageOpenFailed(e.to_string()))?;
-        self.process_image(img)
+        let image = image::open(path).map_err(|e| Error::ImageOpenFailed(e.to_string()))?;
+        self.process_image(image)
     }
 
     #[cfg(feature = "image")]
@@ -256,6 +238,7 @@ impl<'a> RealCugan<'a> {
         dynamic_image.ok_or(Error::ColorConversionFailed)
     }
 }
+
 
 
 impl Drop for RealCugan<'_> {

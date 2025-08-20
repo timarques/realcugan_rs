@@ -11,11 +11,14 @@ pub enum Error {
     #[error("Failed to create in-memory file pointers for model data.")]
     FilePointerCreationFailed,
 
-    #[error("Failed to load model files into Real-CUGAN. Error code: {code}")]
+    #[error("Failed to load model files. Error code: {code}")]
     ModelLoadFailed { code: i32 },
 
-    #[error("The RealCugan instance pointer is null. It may have been dropped or failed to initialize.")]
+    #[error("The instance pointer is null. It may have been dropped or failed to initialize.")]
     InvalidPointer,
+
+    #[error("Failed to initialize instance")]
+    InitializationFailed,
 
     #[error("Invalid input dimensions: expected byte length to be a multiple of {expected_length}, but got {actual_length}.")]
     InvalidInput { expected_length: usize, actual_length: usize },
