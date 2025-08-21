@@ -45,14 +45,16 @@ extern "C" {
     ) -> c_int;
 }
 
-#[derive(Debug)]
-pub struct RealCugan<'a> {
+#[derive(Clone, Debug)]
+pub struct RealCugan {
     pointer: *mut c_void,
-    options: Options<'a>,
+    scale_factor: i32,
+    use_cpu: bool
 }
 
-impl<'a> RealCugan<'a> {
-    pub fn new(options: Options<'a>) -> Result<Self, Error> {
+impl RealCugan {
+
+    pub fn new(options: Options) -> Result<Self, Error> {
         Self::validate_gpu(options.gpuid)?;
 
         let pointer = unsafe {
@@ -77,23 +79,26 @@ impl<'a> RealCugan<'a> {
             return Err(error);
         }
 
-        Ok(Self { pointer, options })
+        let use_cpu = options.gpuid == -1;
+        let scale_factor = options.scale_factor;
+
+        Ok(Self {
+            pointer,
+            scale_factor,
+            use_cpu
+        })
     }
-    
-    pub fn options(&self) -> &Options<'a> {
-        &self.options
-    }
-    
+
     fn validate_gpu(gpu: i32) -> Result<(), Error> {
         if gpu == -1 {
             return Ok(());
         }
-        
+
         let count = unsafe { realcugan_get_gpu_count() };
         if gpu >= count {
-            Err(Error::GpuNotFound { 
-                requested: gpu, 
-                available: count 
+            Err(Error::GpuNotFound {
+                requested: gpu,
+                available: count
             })
         } else {
             Ok(())
@@ -101,7 +106,7 @@ impl<'a> RealCugan<'a> {
     }
 
     fn create_file_pointer(contents: &[u8]) -> *mut FILE {
-        unsafe { 
+        unsafe {
             libc::fmemopen(
                 contents.as_ptr() as *mut c_void,
                 contents.len(),
@@ -122,7 +127,7 @@ impl<'a> RealCugan<'a> {
             if !file_param_pointer.is_null() {
                 unsafe { libc::fclose(file_param_pointer) };
             }
-            if !file_bin_pointer.is_null() { 
+            if !file_bin_pointer.is_null() {
                 unsafe { libc::fclose(file_bin_pointer) };
             }
             return Err(Error::FilePointerCreationFailed);
@@ -160,18 +165,18 @@ impl<'a> RealCugan<'a> {
                 actual_length: input.len()
             });
         }
-        
-        let process_function = if self.options.gpuid >= 0 {
-            realcugan_process
-        } else {
+
+        let process_function = if self.use_cpu {
             realcugan_process_cpu
+        } else {
+            realcugan_process
         };
 
         let channels = input.len() / expected_length;
-        let output_width = width * self.options.scale_factor as usize;
-        let output_height = height * self.options.scale_factor as usize;
+        let output_width = width * self.scale_factor as usize;
+        let output_height = height * self.scale_factor as usize;
         let mut output = vec![0u8; output_width * output_height * channels];
-        
+
         let code = unsafe {
             process_function(
                 self.pointer,
@@ -196,7 +201,7 @@ impl<'a> RealCugan<'a> {
         width: usize,
         height: usize,
     ) -> Result<Vec<Vec<u8>>, Error>
-    where 
+    where
         I: IntoIterator<Item = B>,
         B: AsRef<[u8]>,
     {
@@ -205,7 +210,7 @@ impl<'a> RealCugan<'a> {
             .map(|input_chunk| self.process(input_chunk.as_ref(), width, height))
             .collect()
     }
-    
+
     #[cfg(feature = "image")]
     pub fn process_file<P>(&self, path: P) -> Result<crate::Image, Error>
     where
@@ -218,15 +223,15 @@ impl<'a> RealCugan<'a> {
     #[cfg(feature = "image")]
     pub fn process_image(&self, image: crate::Image) -> Result<crate::Image, Error> {
         use image::{ColorType, ImageBuffer, DynamicImage};
-        
+
         let color_type = image.color();
         let input = image.to_rgb8().into_raw();
         let width = image.width();
         let height = image.height();
         let output = self.process(&input, width as usize, height as usize)?;
-        let new_width = width * self.options.scale_factor as u32;
-        let new_height = height * self.options.scale_factor as u32;
-    
+        let new_width = width * self.scale_factor as u32;
+        let new_height = height * self.scale_factor as u32;
+
         let dynamic_image = match color_type {
             ColorType::Rgb8 => ImageBuffer::from_raw(new_width, new_height, output).map(DynamicImage::ImageRgb8),
             ColorType::Rgba8 => ImageBuffer::from_raw(new_width, new_height, output).map(DynamicImage::ImageRgba8),
@@ -234,17 +239,17 @@ impl<'a> RealCugan<'a> {
             ColorType::La8 => ImageBuffer::from_raw(new_width, new_height, output).map(DynamicImage::ImageLumaA8),
             _ => ImageBuffer::from_raw(new_width, new_height, output).map(DynamicImage::ImageRgb8),
         };
-    
+
         dynamic_image.ok_or(Error::ColorConversionFailed)
     }
 }
 
-
-
-impl Drop for RealCugan<'_> {
+impl Drop for RealCugan {
     fn drop(&mut self) {
         if !self.pointer.is_null() {
             unsafe { realcugan_free(self.pointer) };
         }
     }
 }
+
+unsafe impl Send for RealCugan {}
