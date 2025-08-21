@@ -7,6 +7,10 @@ edition = "2021"
 path = "src/rust/lib.rs"
 crate-type = ["lib"]
 
+[[test]]
+name = "tests"
+path = "src/tests/main.rs"
+
 [dependencies]
 image = { version = "0.25.2", optional = true }
 libc = "0.2.158"

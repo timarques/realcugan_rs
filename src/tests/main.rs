@@ -1,8 +1,8 @@
 use std::path::Path;
 use realcugan_rs::{RealCugan, Options, OptionsScaleFactor, OptionsNoiseLevel};
 
-const IMAGE: &str = "./tests/image.jpg";
-const MODEL: &str = "./models/models-se/up2x-conservative";
+const IMAGE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/tests/image.jpg");
+const MODEL: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/models/models-se/up2x-conservative");
 
 #[test]
 #[cfg(feature = "image")]

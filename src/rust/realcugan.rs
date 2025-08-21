@@ -45,7 +45,7 @@ extern "C" {
     ) -> c_int;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct RealCugan {
     pointer: *mut c_void,
     scale_factor: i32,
