@@ -217,11 +217,11 @@ impl RealCugan {
         P: AsRef<std::path::Path>,
     {
         let image = image::open(path).map_err(|e| Error::ImageOpenFailed(e.to_string()))?;
-        self.process_image(image)
+        self.process_image(&image)
     }
 
     #[cfg(feature = "image")]
-    pub fn process_image(&self, image: crate::Image) -> Result<crate::Image, Error> {
+    pub fn process_image(&self, image: &crate::Image) -> Result<crate::Image, Error> {
         use image::{ColorType, ImageBuffer, DynamicImage};
 
         let color_type = image.color();

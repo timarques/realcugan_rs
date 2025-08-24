@@ -27,7 +27,7 @@ fn with_image() {
     let original_height = d_image.height();
 
     // Upscale the image
-    let upscaled_image = realcugan.process_image(d_image).expect("Failed to upscale image");
+    let upscaled_image = realcugan.process_image(&d_image).expect("Failed to upscale image");
 
     // Save the upscaled image and assert it was saved
     let upscaled_save_path = "/tmp/upscaled.png";
